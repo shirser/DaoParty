@@ -1,114 +1,167 @@
 const { expect } = require("chai");
-const { ethers } = require("hardhat");
+const { ethers, network } = require("hardhat");
 
-describe("DaoParty", function () {
-  let daoParty;
-  let owner, voter1, voter2, nonOwner;
+describe("DaoParty (обновлённая версия с KYC и NFT, используя NFTPassport)", function () {
+  let daoParty, nftPassport;
+  let owner, verifiedUser, unverifiedUser, otherUser;
+  const votingPeriod = 3600; // 1 час
 
   beforeEach(async function () {
-    // Получаем тестовые аккаунты
-    [owner, voter1, voter2, nonOwner] = await ethers.getSigners();
+    [owner, verifiedUser, unverifiedUser, otherUser] = await ethers.getSigners();
 
-    // Получаем фабрику контракта
-    const DaoPartyFactory = await ethers.getContractFactory("DaoParty");
-    // Передаём owner.address в конструктор
-    daoParty = await DaoPartyFactory.deploy(owner.address);
-    // Ваша версия Ethers уже возвращает развернутый контракт,
-    // поэтому вызов daoParty.deployed() не требуется и должен быть удалён.
+    const NFTPassport = await ethers.getContractFactory("NFTPassport");
+    nftPassport = await NFTPassport.deploy();
+    await nftPassport.waitForDeployment();
+
+    const nftPassportAddress = await nftPassport.getAddress();
+    console.log("NFTPassport deployed at:", nftPassportAddress);
+
+    await nftPassport.mintPassport(verifiedUser.address);
+
+    const DaoParty = await ethers.getContractFactory("DaoParty");
+    daoParty = await DaoParty.deploy(owner.address);
+    await daoParty.waitForDeployment();
+
+    await daoParty.setNftContract(nftPassportAddress);
+    await daoParty.updateKyc(verifiedUser.address, true);
   });
 
-  it("Должен корректно деплоиться", async function () {
-    expect(await daoParty.owner()).to.equal(owner.address);
-  });
-
-  describe("createProposal", function () {
-    it("Должен позволять владельцу создавать предложение", async function () {
-      const tx = await daoParty.createProposal("Proposal 1");
-      await tx.wait();
-      await expect(tx)
-        .to.emit(daoParty, "ProposalCreated")
-        .withArgs(0, "Proposal 1");
+  describe("Функции администратора", function () {
+    it("Должен позволять владельцу установить адрес NFT-контракта и выбросить событие", async function () {
+      await expect(daoParty.setNftContract(await nftPassport.getAddress()))
+        .to.emit(daoParty, "NftContractUpdated")
+        .withArgs(await nftPassport.getAddress());
     });
 
-    it("Должен отклонять попытку не-владельца создать предложение", async function () {
+    it("Должен позволять владельцу обновить статус KYC и выбросить событие", async function () {
+      await expect(daoParty.updateKyc(unverifiedUser.address, true))
+        .to.emit(daoParty, "KycUpdated")
+        .withArgs(unverifiedUser.address, true);
+    });
+  });
+
+  describe("Проверка требований KYC и NFT", function () {
+    it("Должен отклонять создание предложения, если NFT-контракт не установлен", async function () {
+      const DaoParty = await ethers.getContractFactory("DaoParty");
+      const daoPartyNoNFT = await DaoParty.deploy(owner.address);
+      await daoPartyNoNFT.waitForDeployment();
+      await daoPartyNoNFT.updateKyc(verifiedUser.address, true);
       await expect(
-        daoParty.connect(nonOwner).createProposal("Invalid Proposal")
-      ).to.be.reverted;
+        daoPartyNoNFT.connect(verifiedUser).createProposal("Test Proposal", votingPeriod)
+      ).to.be.revertedWith("NFT contract not set");
+    });
+
+    it("Должен отклонять создание предложения, если вызывающий не владеет NFT", async function () {
+      await daoParty.updateKyc(unverifiedUser.address, true);
+      await expect(
+        daoParty.connect(unverifiedUser).createProposal("Test Proposal", votingPeriod)
+      ).to.be.revertedWith("You must own an NFT");
+    });
+
+    it("Должен отклонять создание предложения, если KYC не пройден", async function () {
+      await nftPassport.mintPassport(otherUser.address);
+      await expect(
+        daoParty.connect(otherUser).createProposal("Test Proposal", votingPeriod)
+      ).to.be.revertedWith("KYC verification required");
     });
   });
 
-  describe("vote", function () {
+  describe("Создание предложений и голосование", function () {
+    let proposalId;
     beforeEach(async function () {
-      await daoParty.createProposal("Proposal for voting");
+      const tx = await daoParty.connect(verifiedUser).createProposal("Proposal 1", votingPeriod);
+      const receipt = await tx.wait();
+
+      console.log("Transaction logs:", receipt.logs);
+
+      if (!receipt.logs || receipt.logs.length === 0) {
+        throw new Error("ProposalCreated event not emitted");
+      }
+
+      // Ищем событие ProposalCreated по имени
+      const event = receipt.logs.find(e => e.fragment && e.fragment.name === "ProposalCreated");
+      if (!event) {
+        throw new Error("ProposalCreated event not found in transaction");
+      }
+
+      // Используем Number(event.args[0]) вместо .toNumber()
+      proposalId = Number(event.args[0]);
     });
 
-    it("Должен позволять голосовать за предложение", async function () {
-      const tx = await daoParty.connect(voter1).vote(0, true);
+    it("Должно создавать предложение с корректным дедлайном", async function () {
+      const currentBlock = await ethers.provider.getBlock("latest");
+      const proposal = await daoParty.getProposal(proposalId);
+      expect(proposal.description).to.equal("Proposal 1");
+      expect(proposal.completed).to.equal(false);
+      expect(proposal.votesFor).to.equal(0);
+      expect(proposal.votesAgainst).to.equal(0);
+      expect(proposal.deadline).to.be.closeTo(currentBlock.timestamp + votingPeriod, 5);
+    });
+
+    it("Должен позволять голосовать верифицированному пользователю", async function () {
+      const tx = await daoParty.connect(verifiedUser).vote(proposalId, true);
       await tx.wait();
-      await expect(tx)
-        .to.emit(daoParty, "Voted")
-        .withArgs(0, voter1.address, true);
+      const proposal = await daoParty.getProposal(proposalId);
+      expect(proposal.votesFor).to.equal(1);
+      expect(await daoParty.hasVoted(proposalId, verifiedUser.address)).to.equal(true);
     });
 
-    it("Должен позволять голосовать против предложения", async function () {
-      const tx = await daoParty.connect(voter1).vote(0, false);
-      await tx.wait();
-      await expect(tx)
-        .to.emit(daoParty, "Voted")
-        .withArgs(0, voter1.address, false);
-    });
-
-    it("Должен отклонять повторное голосование одним и тем же адресом", async function () {
-      await daoParty.connect(voter1).vote(0, true);
+    it("Не должен позволять двойное голосование", async function () {
+      await daoParty.connect(verifiedUser).vote(proposalId, true);
       await expect(
-        daoParty.connect(voter1).vote(0, false)
+        daoParty.connect(verifiedUser).vote(proposalId, false)
       ).to.be.revertedWith("Already voted");
     });
 
-    it("Должен отклонять голосование за несуществующее предложение", async function () {
+    it("Не должен позволять голосование после истечения срока", async function () {
+      await network.provider.send("evm_increaseTime", [votingPeriod + 1]);
+      await network.provider.send("evm_mine");
       await expect(
-        daoParty.connect(voter1).vote(1, true)
-      ).to.be.revertedWith("Invalid proposal ID");
-    });
-
-    it("Должен отклонять голосование по уже финализированному предложению", async function () {
-      await daoParty.finalizeProposal(0);
-      await expect(
-        daoParty.connect(voter1).vote(0, true)
-      ).to.be.revertedWith("Proposal already finalized");
+        daoParty.connect(verifiedUser).vote(proposalId, true)
+      ).to.be.revertedWith("Voting period has ended");
     });
   });
 
-  describe("finalizeProposal", function () {
+  describe("Финализация предложений", function () {
+    let proposalId;
     beforeEach(async function () {
-      await daoParty.createProposal("Proposal to finalize");
+      const tx = await daoParty.connect(verifiedUser).createProposal("Proposal Finalize", votingPeriod);
+      const receipt = await tx.wait();
+
+      console.log("Transaction logs:", receipt.logs);
+
+      if (!receipt.logs || receipt.logs.length === 0) {
+        throw new Error("ProposalCreated event not emitted");
+      }
+
+      const event = receipt.logs.find(e => e.fragment && e.fragment.name === "ProposalCreated");
+      if (!event) {
+        throw new Error("ProposalCreated event not found in transaction");
+      }
+
+      proposalId = Number(event.args[0]);
     });
 
-    it("Должен позволять владельцу финализировать предложение", async function () {
-      const tx = await daoParty.finalizeProposal(0);
+    it("Не должен позволять финализировать предложение до истечения срока", async function () {
+      await expect(daoParty.finalizeProposal(proposalId))
+        .to.be.revertedWith("Voting period is not over yet");
+    });
+
+    it("Должен позволять владельцу финализировать предложение после истечения срока", async function () {
+      await network.provider.send("evm_increaseTime", [votingPeriod + 1]);
+      await network.provider.send("evm_mine");
+      const tx = await daoParty.finalizeProposal(proposalId);
       await tx.wait();
-      await expect(tx)
-        .to.emit(daoParty, "ProposalFinalized")
-        .withArgs(0);
+      const proposal = await daoParty.getProposal(proposalId);
+      expect(proposal.completed).to.equal(true);
     });
 
-    it("Должен отклонять попытку не-владельца финализировать предложение", async function () {
+    it("Не должен позволять не-владельцу финализировать предложение", async function () {
+      await network.provider.send("evm_increaseTime", [votingPeriod + 1]);
+      await network.provider.send("evm_mine");
       await expect(
-        daoParty.connect(nonOwner).finalizeProposal(0)
+        daoParty.connect(verifiedUser).finalizeProposal(proposalId)
       ).to.be.reverted;
-    });
-
-    it("Должен отклонять повторную финализацию уже завершённого предложения", async function () {
-      await daoParty.finalizeProposal(0);
-      await expect(
-        daoParty.finalizeProposal(0)
-      ).to.be.revertedWith("Proposal already finalized");
-    });
-
-    it("Должен отклонять финализацию несуществующего предложения", async function () {
-      await expect(
-        daoParty.finalizeProposal(1)
-      ).to.be.revertedWith("Invalid proposal ID");
     });
   });
 });

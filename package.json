@@ -8,5 +8,10 @@
     "@openzeppelin/contracts": "^5.2.0",
     "dotenv": "^16.4.7",
     "hardhat": "^2.22.18"
+  },
+  "dependencies": {
+    "@ethersproject/providers": "^5.7.2",
+    "ethers": "^6.13.5",
+    "ws": "^8.18.0"
   }
 }
