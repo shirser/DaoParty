@@ -10,6 +10,12 @@ contract DaoParty is Ownable {
 
     // Мэппинг для хранения статуса KYC: true - верифицирован, false - не верифицирован.
     mapping(address => bool) public kycVerified;
+    // Хранение даты истечения KYC для каждого пользователя.
+    mapping(address => uint256) public kycExpiry;
+    // (Опционально) Хранение типа документа для каждого пользователя.
+    mapping(address => string) public kycDocumentType;
+    // Период валидности KYC (например, 30 дней = 2592000 секунд).
+    uint256 public constant KYC_VALIDITY_PERIOD = 2592000;
 
     struct Proposal {
         string description;
@@ -25,60 +31,36 @@ contract DaoParty is Ownable {
     event ProposalCreated(uint256 proposalId, string description, uint256 deadline);
     event Voted(uint256 proposalId, address voter, bool support);
     event ProposalFinalized(uint256 proposalId);
-    event KycUpdated(address indexed user, bool verified);
+    // Обновлено событие KycUpdated: добавлен параметр documentType (можно использовать пустую строку, если не требуется)
+    event KycUpdated(address indexed user, bool verified, uint256 expiry, string documentType);
     event NftContractUpdated(address indexed nftAddress);
 
-    // Передаём аргумент initialOwner базовому конструктору Ownable.
-    // Если используем последнюю версию OpenZeppelin Ownable, в которой конструктор без параметров,
-    // можно заменить на: constructor() { }
-    constructor(address initialOwner) Ownable(initialOwner) {
-        // Дополнительной логики не требуется.
-    }
+    constructor(address initialOwner) Ownable(initialOwner) {}
 
-    /**
-     * @dev Модификатор, проверяющий, что вызывающий адрес:
-     * 1. NFT-контракт установлен;
-     * 2. владеет хотя бы одним NFT;
-     * 3. прошёл верификацию KYC.
-     */
     modifier onlyVerified() {
         require(address(nftContract) != address(0), "NFT contract not set");
         require(nftContract.balanceOf(msg.sender) > 0, "You must own an NFT");
         require(kycVerified[msg.sender], "KYC verification required");
+        require(kycExpiry[msg.sender] > block.timestamp, "KYC expired");
         _;
     }
 
-    /**
-     * @dev Функция для установки адреса NFT-контракта.
-     * Может вызываться только владельцем.
-     * @param _nftAddress адрес NFT-контракта.
-     */
     function setNftContract(address _nftAddress) external onlyOwner {
         nftContract = IERC721(_nftAddress);
         emit NftContractUpdated(_nftAddress);
     }
 
-    /**
-     * @dev Функция для обновления статуса KYC для пользователя.
-     * Может вызываться только владельцем.
-     * @param user адрес пользователя.
-     * @param verified true, если пользователь верифицирован, иначе false.
-     */
     function updateKyc(address user, bool verified) external onlyOwner {
         kycVerified[user] = verified;
-        emit KycUpdated(user, verified);
+        if (verified) {
+            kycExpiry[user] = block.timestamp + KYC_VALIDITY_PERIOD;
+        } else {
+            kycExpiry[user] = 0;
+            kycDocumentType[user] = "";
+        }
+        emit KycUpdated(user, verified, kycExpiry[user], kycDocumentType[user]);
     }
 
-    /**
-     * @dev Верифицирует пользователя, используя документ и биометрические данные.
-     * Проверка выполняется только для внутренних паспортов РФ.
-     * Перед верификацией дополнительно проверяются параметры «живости» (liveness) и наличия корректного FaceID.
-     * Может вызываться только владельцем.
-     * @param user адрес пользователя.
-     * @param documentType строка, описывающая тип документа (требуется "ВНУТРЕННИЙ ПАСПОРТ РФ").
-     * @param liveness параметр, показывающий, что прошёл проверку на живость (true, если проверка пройдена).
-     * @param faceId строка, содержащая данные FaceID (должна быть непустой).
-     */
     function verifyUser(
         address user,
         string calldata documentType,
@@ -92,16 +74,12 @@ contract DaoParty is Ownable {
         require(liveness, "Liveness check failed");
         require(bytes(faceId).length > 0, "Invalid faceID");
         kycVerified[user] = true;
-        emit KycUpdated(user, true);
+        kycExpiry[user] = block.timestamp + KYC_VALIDITY_PERIOD;
+        // Сохраняем тип документа
+        kycDocumentType[user] = documentType;
+        emit KycUpdated(user, true, kycExpiry[user], documentType);
     }
 
-    /**
-     * @dev Создаёт новое предложение с заданным периодом голосования.
-     * Может вызываться только верифицированными пользователями.
-     * @param description Описание предложения.
-     * @param votingPeriod Период голосования в секундах (от текущего времени).
-     * @return true, если предложение успешно создано.
-     */
     function createProposal(string memory description, uint256 votingPeriod) external onlyVerified returns (bool) {
         proposals.push();
         uint256 proposalId = proposals.length - 1;
@@ -116,12 +94,6 @@ contract DaoParty is Ownable {
         return true;
     }
 
-    /**
-     * @dev Функция для голосования за предложение.
-     * Может вызываться только верифицированными пользователями.
-     * @param proposalId Идентификатор предложения.
-     * @param support true, если голос "за", false – "против".
-     */
     function vote(uint256 proposalId, bool support) external onlyVerified {
         require(proposalId < proposals.length, "Invalid proposal ID");
         Proposal storage p = proposals[proposalId];
@@ -138,11 +110,6 @@ contract DaoParty is Ownable {
         emit Voted(proposalId, msg.sender, support);
     }
 
-    /**
-     * @dev Завершает голосование по предложению.
-     * Может вызываться только владельцем и только после истечения периода голосования.
-     * @param proposalId Идентификатор предложения.
-     */
     function finalizeProposal(uint256 proposalId) external onlyOwner {
         require(proposalId < proposals.length, "Invalid proposal ID");
         Proposal storage p = proposals[proposalId];
@@ -153,10 +120,6 @@ contract DaoParty is Ownable {
         emit ProposalFinalized(proposalId);
     }
 
-    /**
-     * @dev Возвращает данные предложения (без поля voted).
-     * @param proposalId Идентификатор предложения.
-     */
     function getProposal(uint256 proposalId) external view returns (
         string memory description,
         bool completed,
@@ -169,11 +132,6 @@ contract DaoParty is Ownable {
         return (p.description, p.completed, p.votesFor, p.votesAgainst, p.deadline);
     }
 
-    /**
-     * @dev Проверяет, голосовал ли конкретный адрес за предложение.
-     * @param proposalId Идентификатор предложения.
-     * @param voter Адрес проверяемого участника.
-     */
     function hasVoted(uint256 proposalId, address voter) external view returns (bool) {
         require(proposalId < proposals.length, "Invalid proposal ID");
         Proposal storage p = proposals[proposalId];
