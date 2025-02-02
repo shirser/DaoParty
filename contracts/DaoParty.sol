@@ -34,6 +34,8 @@ contract DaoParty is Ownable {
     // Обновлено событие KycUpdated: добавлен параметр documentType (можно использовать пустую строку, если не требуется)
     event KycUpdated(address indexed user, bool verified, uint256 expiry, string documentType);
     event NftContractUpdated(address indexed nftAddress);
+    // Событие для запроса на повторную верификацию (аннулирование старых данных)
+    event KycResetRequested(address indexed user);
 
     constructor(address initialOwner) Ownable(initialOwner) {}
 
@@ -80,6 +82,7 @@ contract DaoParty is Ownable {
         emit KycUpdated(user, true, kycExpiry[user], documentType);
     }
 
+    /// @notice Функция для создания предложения. Доступна только для верифицированных пользователей.
     function createProposal(string memory description, uint256 votingPeriod) external onlyVerified returns (bool) {
         proposals.push();
         uint256 proposalId = proposals.length - 1;
@@ -94,6 +97,7 @@ contract DaoParty is Ownable {
         return true;
     }
 
+    /// @notice Функция для голосования за предложение. Доступна только для верифицированных пользователей.
     function vote(uint256 proposalId, bool support) external onlyVerified {
         require(proposalId < proposals.length, "Invalid proposal ID");
         Proposal storage p = proposals[proposalId];
@@ -110,6 +114,7 @@ contract DaoParty is Ownable {
         emit Voted(proposalId, msg.sender, support);
     }
 
+    /// @notice Функция для финализации голосования по предложению. Вызывается владельцем контракта.
     function finalizeProposal(uint256 proposalId) external onlyOwner {
         require(proposalId < proposals.length, "Invalid proposal ID");
         Proposal storage p = proposals[proposalId];
@@ -120,6 +125,7 @@ contract DaoParty is Ownable {
         emit ProposalFinalized(proposalId);
     }
 
+    /// @notice Получение информации о предложении по его идентификатору.
     function getProposal(uint256 proposalId) external view returns (
         string memory description,
         bool completed,
@@ -132,9 +138,22 @@ contract DaoParty is Ownable {
         return (p.description, p.completed, p.votesFor, p.votesAgainst, p.deadline);
     }
 
+    /// @notice Проверка, голосовал ли указанный адрес по данному предложению.
     function hasVoted(uint256 proposalId, address voter) external view returns (bool) {
         require(proposalId < proposals.length, "Invalid proposal ID");
         Proposal storage p = proposals[proposalId];
         return p.voted[voter];
+    }
+
+    /// @notice Функция для аннулирования текущей KYC. Пользователь может вызвать эту функцию,
+    /// чтобы удалить свои старые данные и запросить повторную верификацию.
+    function cancelKyc() external {
+        require(kycVerified[msg.sender], "KYC is not active");
+        // Аннулируем KYC: сбрасываем статус, дату истечения и тип документа.
+        kycVerified[msg.sender] = false;
+        kycExpiry[msg.sender] = 0;
+        kycDocumentType[msg.sender] = "";
+        emit KycUpdated(msg.sender, false, 0, "");
+        emit KycResetRequested(msg.sender);
     }
 }

@@ -1,4 +1,4 @@
-// interact.js
+// scripts/interact.js
 
 // Получаем адреса из переменных окружения или из аргументов командной строки
 const contractAddressFromEnv = process.env.CONTRACT_ADDRESS;
@@ -40,12 +40,18 @@ async function main() {
 
   // --- Административные функции ---
 
-  // Устанавливаем адрес NFT-контракта (для примера используем адрес user1)
+  // Устанавливаем адрес NFT-контракта равным задеплоенному NFTPassport,
+  // чтобы проверка владения NFT работала корректно.
   console.log("\n[Администрирование] Установка адреса NFT-контракта...");
-  const user1Address = await user1.getAddress();
-  let tx = await daoParty.setNftContract(user1Address);
+  let tx = await daoParty.setNftContract(nftPassportAddress);
   await tx.wait();
-  console.log("NFT-контракт установлен на:", user1Address);
+  console.log("NFT-контракт установлен на:", nftPassportAddress);
+
+  // Минтим NFT для user3, чтобы он владел NFT и мог создавать предложения.
+  console.log("\n[Администрирование] Минтим NFT для user3...");
+  tx = await nftPassport.mintPassport(user3.address);
+  await tx.wait();
+  console.log("NFT для user3 успешно выдан.");
 
   // Обновляем статус KYC для user2 через updateKyc (без проверки биометрии)
   console.log("\n[Администрирование] Обновление KYC для user2 через updateKyc...");
@@ -60,8 +66,37 @@ async function main() {
   await tx.wait();
   console.log("User3 успешно верифицирован.");
 
-  // Остальной код остается без изменений...
-  // ...
+  // --- Проверка механизма отмены KYC и повторной верификации ---
+
+  // 1. Отмена KYC от имени user3
+  console.log("\n[Проверка KYC] User3 отменяет свой KYC...");
+  tx = await daoParty.connect(user3).cancelKyc();
+  await tx.wait();
+  console.log("User3 успешно отменил KYC.");
+
+  // 2. Попытка создать предложение от user3 после отмены KYC (ожидается ошибка)
+  console.log("\n[Проверка KYC] Попытка создать предложение от user3 после отмены KYC...");
+  try {
+    tx = await daoParty.connect(user3).createProposal("Test Proposal - After CancelKYC", votingPeriod);
+    await tx.wait();
+    console.log("Ошибка: предложение создано, хотя KYC отменён.");
+  } catch (error) {
+    console.log("Ожидаемая ошибка при создании предложения:", error.message);
+  }
+
+  // 3. Повторная верификация user3 для восстановления возможности создания предложения
+  console.log("\n[Проверка KYC] Повторная верификация user3...");
+  tx = await daoParty.verifyUser(user3.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "faceXYZ");
+  await tx.wait();
+  console.log("User3 успешно повторно верифицирован.");
+
+  // 4. Создание предложения от user3 после повторной верификации – операция должна пройти успешно
+  console.log("\n[Проверка KYC] Создание предложения от user3 после повторной верификации...");
+  tx = await daoParty.connect(user3).createProposal("Test Proposal - After ReKYC", votingPeriod);
+  await tx.wait();
+  console.log("Предложение успешно создано после повторной верификации.");
+
+  // Остальной код для взаимодействия с контрактом можно добавить здесь...
 }
 
 main()
