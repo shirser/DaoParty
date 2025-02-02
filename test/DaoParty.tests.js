@@ -281,6 +281,40 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
         });
     });
 
+    describe("Ограничения KYC", function () {
+        it("Не должен разрешать повторную верификацию в течение 12 месяцев", async function () {
+            // verifiedUser уже верифицирован в beforeEach через verifyUser с faceId "face123"
+            // Попытаемся повторно верифицировать verifiedUser с другим паспортом до истечения 12 месяцев.
+            await expect(
+                daoParty.verifyUser(verifiedUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "faceNew")
+            ).to.be.revertedWith("KYC can be updated only once per 12 months");
+        });
+
+        it("Не должен позволять использовать один и тот же паспорт (faceId) для верификации другого пользователя", async function () {
+            // verifiedUser уже прошёл верификацию с faceId "face123"
+            // Попытаемся верифицировать otherUser с тем же faceId "face123"
+            await expect(
+                daoParty.verifyUser(otherUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "face123")
+            ).to.be.revertedWith("Passport already used");
+        });
+
+        it("Должен разрешать повторную верификацию спустя 12 месяцев", async function () {
+            // Отменяем KYC для verifiedUser
+            await daoParty.connect(verifiedUser).cancelKyc();
+
+            // Увеличиваем время на 365 дней + 1 секунда, чтобы пройти ограничение по частоте
+            await network.provider.send("evm_increaseTime", [365 * 24 * 3600 + 1]);
+            await network.provider.send("evm_mine");
+
+            // Теперь повторная верификация должна пройти успешно
+            await expect(
+                    daoParty.verifyUser(verifiedUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "faceNew")
+                ).to.emit(daoParty, "KycUpdated")
+                .withArgs(verifiedUser.address, true, anyValue, "ВНУТРЕННИЙ ПАСПОРТ РФ");
+        });
+    });
+
+
     describe("Финализация предложений", function () {
         let proposalId;
         beforeEach(async function () {

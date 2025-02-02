@@ -17,6 +17,27 @@ contract DaoParty is Ownable {
     // Период валидности KYC (например, 30 дней = 2592000 секунд).
     uint256 public constant KYC_VALIDITY_PERIOD = 2592000;
 
+    // --- Новый функционал для доверенных KYC-провайдеров ---
+    // Мэппинг доверенных KYC-провайдеров.
+    mapping(address => bool) public kycProviders;
+
+    // Модификатор, разрешающий вызов только владельцу или доверенным KYC-провайдерам.
+    modifier onlyKycProvider() {
+        require(kycProviders[msg.sender] || msg.sender == owner(), "Not an authorized KYC provider");
+        _;
+    }
+
+    // Функция для добавления доверенного KYC-провайдера. Вызывается только владельцем.
+    function addKycProvider(address provider) external onlyOwner {
+        kycProviders[provider] = true;
+    }
+
+    // Функция для удаления доверенного KYC-провайдера. Вызывается только владельцем.
+    function removeKycProvider(address provider) external onlyOwner {
+        kycProviders[provider] = false;
+    }
+    // -----------------------------------------------
+
     struct Proposal {
         string description;
         bool completed;
@@ -63,12 +84,13 @@ contract DaoParty is Ownable {
         emit KycUpdated(user, verified, kycExpiry[user], kycDocumentType[user]);
     }
 
+    // Функция verifyUser теперь доступна доверенным KYC-провайдерам (или владельцу)
     function verifyUser(
         address user,
         string calldata documentType,
         bool liveness,
         string calldata faceId
-    ) external onlyOwner {
+    ) external onlyKycProvider {
         require(
             keccak256(bytes(documentType)) == keccak256(bytes(unicode"ВНУТРЕННИЙ ПАСПОРТ РФ")),
             "Only Russian internal passports are allowed"

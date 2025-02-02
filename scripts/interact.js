@@ -35,7 +35,7 @@ async function main() {
 
   // Получаем инстанс контракта NFTPassport, используя переданный адрес
   const NFTPassport = await ethers.getContractFactory("NFTPassport");
-  const nftPassport = NFTPassport.attach(nftPassportAddress);
+  const nftPassport = await NFTPassport.attach(nftPassportAddress);
   console.log("Взаимодействуем с контрактом NFTPassport, адрес:", nftPassportAddress);
 
   // --- Административные функции ---
@@ -46,6 +46,12 @@ async function main() {
   let tx = await daoParty.setNftContract(nftPassportAddress);
   await tx.wait();
   console.log("NFT-контракт установлен на:", nftPassportAddress);
+
+  // Регистрируем доверенного KYC-провайдера (например, user1)
+  console.log("\n[Администрирование] Регистрируем доверенного KYC-провайдера (user1)...");
+  tx = await daoParty.addKycProvider(user1.address);
+  await tx.wait();
+  console.log("User1 добавлен как доверенный KYC-провайдер.");
 
   // Минтим NFT для user3, чтобы он владел NFT и мог создавать предложения.
   console.log("\n[Администрирование] Минтим NFT для user3...");
@@ -61,8 +67,9 @@ async function main() {
 
   // Верифицируем user3 через verifyUser с корректными параметрами:
   // documentType: "ВНУТРЕННИЙ ПАСПОРТ РФ", liveness: true, faceId: "faceXYZ"
-  console.log("\n[Администрирование] Верификация user3 с корректными данными...");
-  tx = await daoParty.verifyUser(user3.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "faceXYZ");
+  // Вызываем verifyUser от имени доверенного провайдера (user1)
+  console.log("\n[Администрирование] Верификация user3 с корректными данными от доверенного провайдера...");
+  tx = await daoParty.connect(user1).verifyUser(user3.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "faceXYZ");
   await tx.wait();
   console.log("User3 успешно верифицирован.");
 
@@ -85,8 +92,8 @@ async function main() {
   }
 
   // 3. Повторная верификация user3 для восстановления возможности создания предложения
-  console.log("\n[Проверка KYC] Повторная верификация user3...");
-  tx = await daoParty.verifyUser(user3.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "faceXYZ");
+  console.log("\n[Проверка KYC] Повторная верификация user3 от доверенного провайдера...");
+  tx = await daoParty.connect(user1).verifyUser(user3.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "faceXYZ");
   await tx.wait();
   console.log("User3 успешно повторно верифицирован.");
 
