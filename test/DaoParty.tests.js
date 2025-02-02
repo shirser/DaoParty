@@ -9,6 +9,7 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
   beforeEach(async function () {
     [owner, verifiedUser, unverifiedUser, otherUser] = await ethers.getSigners();
 
+    // Развёртывание NFTPassport (контракт для ментинга NFT)
     const NFTPassport = await ethers.getContractFactory("NFTPassport");
     nftPassport = await NFTPassport.deploy();
     await nftPassport.waitForDeployment();
@@ -16,6 +17,7 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
     const nftPassportAddress = await nftPassport.getAddress();
     console.log("NFTPassport deployed at:", nftPassportAddress);
 
+    // Выдаем NFT для verifiedUser и при необходимости другим
     await nftPassport.mintPassport(verifiedUser.address);
 
     const DaoParty = await ethers.getContractFactory("DaoParty");
@@ -23,7 +25,8 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
     await daoParty.waitForDeployment();
 
     await daoParty.setNftContract(nftPassportAddress);
-    await daoParty.updateKyc(verifiedUser.address, true);
+    // Верифицируем пользователя через verifyUser с корректным документом:
+    await daoParty.verifyUser(verifiedUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ");
   });
 
   describe("Функции администратора", function () {
@@ -37,6 +40,18 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
       await expect(daoParty.updateKyc(unverifiedUser.address, true))
         .to.emit(daoParty, "KycUpdated")
         .withArgs(unverifiedUser.address, true);
+    });
+
+    it("Должен позволять верифицировать пользователя с корректным документом", async function () {
+      await expect(daoParty.verifyUser(otherUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ"))
+        .to.emit(daoParty, "KycUpdated")
+        .withArgs(otherUser.address, true);
+    });
+
+    it("Должен отклонять верификацию пользователя с некорректным документом", async function () {
+      await expect(
+        daoParty.verifyUser(otherUser.address, "Заграничный паспорт")
+      ).to.be.revertedWith("Only Russian internal passports are allowed");
     });
   });
 
@@ -59,6 +74,7 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
     });
 
     it("Должен отклонять создание предложения, если KYC не пройден", async function () {
+      // Выдаем NFT otherUser, но не верифицируем его
       await nftPassport.mintPassport(otherUser.address);
       await expect(
         daoParty.connect(otherUser).createProposal("Test Proposal", votingPeriod)

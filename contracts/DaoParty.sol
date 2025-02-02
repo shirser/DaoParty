@@ -70,6 +70,23 @@ contract DaoParty is Ownable {
     }
 
     /**
+     * @dev Верифицирует пользователя, используя документ.
+     * Проверка выполняется только для внутренних паспортов РФ.
+     * Может вызываться только владельцем.
+     * @param user адрес пользователя.
+     * @param documentType строка, описывающая тип документа.
+     * Требуется, чтобы documentType был равен "ВНУТРЕННИЙ ПАСПОРТ РФ".
+     */
+    function verifyUser(address user, string calldata documentType) external onlyOwner {
+        require(
+            keccak256(bytes(documentType)) == keccak256(bytes(unicode"ВНУТРЕННИЙ ПАСПОРТ РФ")),
+            "Only Russian internal passports are allowed"
+        );
+        kycVerified[user] = true;
+        emit KycUpdated(user, true);
+    }
+
+    /**
      * @dev Создаёт новое предложение с заданным периодом голосования.
      * Может вызываться только верифицированными пользователями.
      * @param description Описание предложения.
