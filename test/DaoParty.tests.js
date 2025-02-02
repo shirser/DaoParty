@@ -25,8 +25,8 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
     await daoParty.waitForDeployment();
 
     await daoParty.setNftContract(nftPassportAddress);
-    // Верифицируем пользователя через verifyUser с корректным документом:
-    await daoParty.verifyUser(verifiedUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ");
+    // Верифицируем пользователя через verifyUser с корректными данными:
+    await daoParty.verifyUser(verifiedUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "face123");
   });
 
   describe("Функции администратора", function () {
@@ -42,16 +42,28 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
         .withArgs(unverifiedUser.address, true);
     });
 
-    it("Должен позволять верифицировать пользователя с корректным документом", async function () {
-      await expect(daoParty.verifyUser(otherUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ"))
+    it("Должен позволять верифицировать пользователя с корректным документом, liveness и FaceID", async function () {
+      await expect(daoParty.verifyUser(otherUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "face456"))
         .to.emit(daoParty, "KycUpdated")
         .withArgs(otherUser.address, true);
     });
 
     it("Должен отклонять верификацию пользователя с некорректным документом", async function () {
       await expect(
-        daoParty.verifyUser(otherUser.address, "Заграничный паспорт")
+        daoParty.verifyUser(otherUser.address, "Заграничный паспорт", true, "face456")
       ).to.be.revertedWith("Only Russian internal passports are allowed");
+    });
+
+    it("Должен отклонять верификацию, если liveness check не пройдена", async function () {
+      await expect(
+        daoParty.verifyUser(otherUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", false, "face456")
+      ).to.be.revertedWith("Liveness check failed");
+    });
+
+    it("Должен отклонять верификацию, если faceID пустой", async function () {
+      await expect(
+        daoParty.verifyUser(otherUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "")
+      ).to.be.revertedWith("Invalid faceID");
     });
   });
 
@@ -60,6 +72,7 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
       const DaoParty = await ethers.getContractFactory("DaoParty");
       const daoPartyNoNFT = await DaoParty.deploy(owner.address);
       await daoPartyNoNFT.waitForDeployment();
+      // Верифицируем пользователя, чтобы KYC не было причиной ошибки
       await daoPartyNoNFT.updateKyc(verifiedUser.address, true);
       await expect(
         daoPartyNoNFT.connect(verifiedUser).createProposal("Test Proposal", votingPeriod)

@@ -70,18 +70,27 @@ contract DaoParty is Ownable {
     }
 
     /**
-     * @dev Верифицирует пользователя, используя документ.
+     * @dev Верифицирует пользователя, используя документ и биометрические данные.
      * Проверка выполняется только для внутренних паспортов РФ.
+     * Перед верификацией дополнительно проверяются параметры «живости» (liveness) и наличия корректного FaceID.
      * Может вызываться только владельцем.
      * @param user адрес пользователя.
-     * @param documentType строка, описывающая тип документа.
-     * Требуется, чтобы documentType был равен "ВНУТРЕННИЙ ПАСПОРТ РФ".
+     * @param documentType строка, описывающая тип документа (требуется "ВНУТРЕННИЙ ПАСПОРТ РФ").
+     * @param liveness параметр, показывающий, что прошёл проверку на живость (true, если проверка пройдена).
+     * @param faceId строка, содержащая данные FaceID (должна быть непустой).
      */
-    function verifyUser(address user, string calldata documentType) external onlyOwner {
+    function verifyUser(
+        address user,
+        string calldata documentType,
+        bool liveness,
+        string calldata faceId
+    ) external onlyOwner {
         require(
             keccak256(bytes(documentType)) == keccak256(bytes(unicode"ВНУТРЕННИЙ ПАСПОРТ РФ")),
             "Only Russian internal passports are allowed"
         );
+        require(liveness, "Liveness check failed");
+        require(bytes(faceId).length > 0, "Invalid faceID");
         kycVerified[user] = true;
         emit KycUpdated(user, true);
     }
@@ -91,8 +100,9 @@ contract DaoParty is Ownable {
      * Может вызываться только верифицированными пользователями.
      * @param description Описание предложения.
      * @param votingPeriod Период голосования в секундах (от текущего времени).
+     * @return true, если предложение успешно создано.
      */
-    function createProposal(string memory description, uint256 votingPeriod) external onlyVerified {
+    function createProposal(string memory description, uint256 votingPeriod) external onlyVerified returns (bool) {
         proposals.push();
         uint256 proposalId = proposals.length - 1;
         Proposal storage newProposal = proposals[proposalId];
@@ -103,6 +113,7 @@ contract DaoParty is Ownable {
         newProposal.deadline = block.timestamp + votingPeriod;
 
         emit ProposalCreated(proposalId, description, newProposal.deadline);
+        return true;
     }
 
     /**
