@@ -35,7 +35,7 @@ async function main() {
 
   // Получаем инстанс контракта NFTPassport, используя переданный адрес
   const NFTPassport = await ethers.getContractFactory("NFTPassport");
-  const nftPassport = await NFTPassport.attach(nftPassportAddress);
+  const nftPassport = NFTPassport.attach(nftPassportAddress);
   console.log("Взаимодействуем с контрактом NFTPassport, адрес:", nftPassportAddress);
 
   // --- Административные функции ---

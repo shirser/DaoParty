@@ -38,6 +38,13 @@ contract DaoParty is Ownable {
     }
     // -----------------------------------------------
 
+    // --- Новый функционал для проверки уникальности идентификатора ---
+    // Мэппинг для хранения использованных идентификаторов (например, faceId).
+    mapping(string => bool) public usedIdentifiers;
+    // Мэппинг для хранения идентификатора для каждого пользователя.
+    mapping(address => string) public userIdentifier;
+    // -------------------------------------------------------------------
+ 
     struct Proposal {
         string description;
         bool completed;
@@ -91,15 +98,24 @@ contract DaoParty is Ownable {
         bool liveness,
         string calldata faceId
     ) external onlyKycProvider {
+        // Проверяем, что пользователь ещё не верифицирован
+        require(!kycVerified[user], "User already verified");
+
         require(
             keccak256(bytes(documentType)) == keccak256(bytes(unicode"ВНУТРЕННИЙ ПАСПОРТ РФ")),
             "Only Russian internal passports are allowed"
         );
         require(liveness, "Liveness check failed");
         require(bytes(faceId).length > 0, "Invalid faceID");
+        // Проверяем, что данный идентификатор (faceId) ещё не использовался
+        require(!usedIdentifiers[faceId], "Identifier already used");
+        
+        // Помечаем идентификатор как использованный и сохраняем его для пользователя
+        usedIdentifiers[faceId] = true;
+        userIdentifier[user] = faceId;
+        
         kycVerified[user] = true;
         kycExpiry[user] = block.timestamp + KYC_VALIDITY_PERIOD;
-        // Сохраняем тип документа
         kycDocumentType[user] = documentType;
         emit KycUpdated(user, true, kycExpiry[user], documentType);
     }
@@ -169,8 +185,15 @@ contract DaoParty is Ownable {
 
     /// @notice Функция для аннулирования текущей KYC. Пользователь может вызвать эту функцию,
     /// чтобы удалить свои старые данные и запросить повторную верификацию.
+    /// При отмене KYC сбрасывается также флаг использования идентификатора, чтобы тот мог быть использован повторно.
     function cancelKyc() external {
         require(kycVerified[msg.sender], "KYC is not active");
+        // Если для пользователя установлен идентификатор, сбрасываем его использование.
+        string memory faceId = userIdentifier[msg.sender];
+        if (bytes(faceId).length > 0) {
+            usedIdentifiers[faceId] = false;
+            userIdentifier[msg.sender] = "";
+        }
         // Аннулируем KYC: сбрасываем статус, дату истечения и тип документа.
         kycVerified[msg.sender] = false;
         kycExpiry[msg.sender] = 0;
