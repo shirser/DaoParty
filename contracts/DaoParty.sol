@@ -17,6 +17,9 @@ contract DaoParty is Ownable {
     // Период валидности KYC (например, 30 дней = 2592000 секунд).
     uint256 public constant KYC_VALIDITY_PERIOD = 2592000;
 
+    // Максимальное количество голосующих (может задаваться владельцем)
+    uint256 public maxVoters;
+
     // --- Новый функционал для доверенных KYC-провайдеров ---
     // Мэппинг доверенных KYC-провайдеров.
     mapping(address => bool) public kycProviders;
@@ -44,7 +47,7 @@ contract DaoParty is Ownable {
     // Мэппинг для хранения идентификатора для каждого пользователя.
     mapping(address => string) public userIdentifier;
     // -------------------------------------------------------------------
- 
+
     struct Proposal {
         string description;
         bool completed;
@@ -67,6 +70,10 @@ contract DaoParty is Ownable {
 
     constructor(address initialOwner) Ownable(initialOwner) {}
 
+    // Модификатор, проверяющий, что вызывающий адрес:
+    // 1. NFT-контракт установлен;
+    // 2. владеет хотя бы одним NFT;
+    // 3. прошёл верификацию KYC и срок верификации не истёк.
     modifier onlyVerified() {
         require(address(nftContract) != address(0), "NFT contract not set");
         require(nftContract.balanceOf(msg.sender) > 0, "You must own an NFT");
@@ -89,6 +96,11 @@ contract DaoParty is Ownable {
             kycDocumentType[user] = "";
         }
         emit KycUpdated(user, verified, kycExpiry[user], kycDocumentType[user]);
+    }
+
+    // Функция для установки максимального числа голосующих
+    function setMaxVoters(uint256 _maxVoters) external onlyOwner {
+        maxVoters = _maxVoters;
     }
 
     // Функция verifyUser теперь доступна доверенным KYC-провайдерам (или владельцу)
@@ -136,6 +148,7 @@ contract DaoParty is Ownable {
     }
 
     /// @notice Функция для голосования за предложение. Доступна только для верифицированных пользователей.
+    /// При каждом голосовании происходит проверка возможности досрочного завершения голосования.
     function vote(uint256 proposalId, bool support) external onlyVerified {
         require(proposalId < proposals.length, "Invalid proposal ID");
         Proposal storage p = proposals[proposalId];
@@ -150,9 +163,30 @@ contract DaoParty is Ownable {
             p.votesAgainst++;
         }
         emit Voted(proposalId, msg.sender, support);
+
+        // Если maxVoters установлен, проверяем возможность досрочной финализации
+        if (maxVoters > 0) {
+            uint256 totalVotes = p.votesFor + p.votesAgainst;
+            // Остаток голосов, которые ещё могут быть отданы
+            uint256 remainingVotes = (maxVoters > totalVotes) ? (maxVoters - totalVotes) : 0;
+
+            // Если лидер имеет преимущество, которое невозможно компенсировать оставшимися голосами, завершаем голосование
+            if (p.votesFor >= p.votesAgainst) {
+                if (p.votesFor - p.votesAgainst > remainingVotes) {
+                    p.completed = true;
+                    emit ProposalFinalized(proposalId);
+                }
+            } else {
+                if (p.votesAgainst - p.votesFor > remainingVotes) {
+                    p.completed = true;
+                    emit ProposalFinalized(proposalId);
+                }
+            }
+        }
     }
 
     /// @notice Функция для финализации голосования по предложению. Вызывается владельцем контракта.
+    /// Если автоматическая финализация не сработала, администратор может завершить голосование вручную после окончания срока.
     function finalizeProposal(uint256 proposalId) external onlyOwner {
         require(proposalId < proposals.length, "Invalid proposal ID");
         Proposal storage p = proposals[proposalId];
