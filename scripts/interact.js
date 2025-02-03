@@ -3,6 +3,7 @@
 // Импортируем anyValue для использования в проверке событий
 const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
 
+// Получаем адреса контрактов из переменных окружения или аргументов командной строки
 const contractAddressFromEnv = process.env.CONTRACT_ADDRESS;
 const contractAddressArg = process.argv[process.argv.length - 1];
 const daoPartyAddress =
@@ -304,6 +305,51 @@ async function main() {
   proposal = await daoParty.getProposal(proposalId);
   expect(proposal.completed).to.equal(true);
   console.log("Ручная финализация голосования прошла успешно.");
+
+  // --- Дополнительные проверки новых фич ---
+  // 6. Проверка удаления доверенного KYC-провайдера
+  console.log("\n[Дополнительная проверка] Удаление доверенного KYC-провайдера");
+  tx = await daoParty.removeKycProvider(verifiedUser.address);
+  await tx.wait();
+  console.log("verifiedUser удалён из доверенных KYC-провайдеров.");
+  try {
+    tx = await daoParty.connect(verifiedUser).verifyUser(user2.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "faceNew");
+    await tx.wait();
+    console.log("Ошибка: verifyUser вызвана удалённым провайдером, ожидалась ошибка.");
+  } catch (error) {
+    console.log("Ожидаемая ошибка при вызове verifyUser удалённым провайдером:", error.message);
+  }
+
+  // 7. Проверка уникальности идентификатора (faceId)
+  console.log("\n[Дополнительная проверка] Проверка уникальности идентификатора (faceId)");
+  // Сбросим KYC для user2, чтобы можно было повторно верифицировать с новым идентификатором
+  tx = await daoParty.updateKyc(user2.address, false);
+  await tx.wait();
+  // Добавляем владельца как доверенного провайдера (owner всегда разрешён)
+  tx = await daoParty.addKycProvider(owner.address);
+  await tx.wait();
+  tx = await daoParty.connect(owner).verifyUser(user2.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "uniqueFace");
+  await tx.wait();
+  console.log("User2 успешно верифицирован с идентификатором uniqueFace.");
+  // Теперь для user3 попытка верификации с тем же идентификатором должна привести к ошибке
+  tx = await daoParty.connect(user3).cancelKyc();
+  await tx.wait();
+  try {
+    tx = await daoParty.connect(owner).verifyUser(user3.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "uniqueFace");
+    await tx.wait();
+    console.log("Ошибка: повторное использование идентификатора uniqueFace разрешено, ожидалась ошибка.");
+  } catch (error) {
+    console.log("Ожидаемая ошибка при повторном использовании идентификатора uniqueFace:", error.message);
+  }
+
+  // 8. Проверка функции getUserPassport в контракте NFTPassport
+  console.log("\n[Дополнительная проверка] Функция getUserPassport в NFTPassport");
+  const passportId = await nftPassport.getUserPassport(verifiedUser.address);
+  console.log(`NFT-паспорт verifiedUser: ${passportId}`);
+
+  // 9. Проверка функции totalSupply в контракте NFTPassport
+  const totalSupply = await nftPassport.totalSupply();
+  console.log(`Общее количество выпущенных NFT-паспортов: ${totalSupply}`);
 
   console.log("\nВсе проверки завершены успешно.");
 }
