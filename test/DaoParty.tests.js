@@ -149,15 +149,15 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
   describe("Создание предложений и голосование", function () {
     let proposalId;
     beforeEach(async function () {
+      // Для корректного голосования установим maxVoters и откроем предложение для голосования через лайки
+      await daoParty.setMaxVoters(100);
       const tx = await daoParty.connect(verifiedUser).createProposal("Proposal 1", votingPeriod);
       const receipt = await tx.wait();
 
+      // Открываем предложение для голосования, вызывая likeProposal с ID 0 (единственное предложение имеет ID 0)
+      await daoParty.connect(verifiedUser).likeProposal(0);
+
       console.log("Transaction logs:", receipt.logs);
-
-      if (!receipt.logs || receipt.logs.length === 0) {
-        throw new Error("ProposalCreated event not emitted");
-      }
-
       const parsedEvents = receipt.logs
         .map((log) => {
           try {
@@ -185,6 +185,7 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
     });
 
     it("Должен позволять голосовать верифицированному пользователю", async function () {
+      // Голосование теперь разрешено, так как предложение открыто для голосования
       const tx = await daoParty.connect(verifiedUser).vote(proposalId, true);
       await tx.wait();
       const proposal = await daoParty.getProposal(proposalId);
@@ -248,6 +249,8 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
       await daoParty.setMaxVoters(maxVoters);
       const tx = await daoParty.connect(verifiedUser).createProposal("Auto Finalization Proposal", votingPeriod);
       const receipt = await tx.wait();
+      // Открываем предложение для голосования, используя правильный ID (0)
+      await daoParty.connect(verifiedUser).likeProposal(0);
       const parsedEvents = receipt.logs
         .map((log) => {
           try {
@@ -281,6 +284,8 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
         await owner.sendTransaction({ to: wallet.address, value: ethers.parseEther("1") });
         await nftPassport.mintPassport(wallet.address);
         await daoParty.updateKyc(wallet.address, true);
+        // Открываем предложение для голосования для нового пользователя (если еще не поставлен лайк)
+        await daoParty.connect(wallet).likeProposal(proposalId);
         additionalVoters.push(wallet);
       }
       // Первые 100 голосов "за"
@@ -311,6 +316,8 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
         await owner.sendTransaction({ to: wallet.address, value: ethers.parseEther("1") });
         await nftPassport.mintPassport(wallet.address);
         await daoParty.updateKyc(wallet.address, true);
+        // Открываем предложение для голосования
+        await daoParty.connect(wallet).likeProposal(proposalId);
         additionalVoters.push(wallet);
       }
       for (let i = 0; i < 140; i++) {

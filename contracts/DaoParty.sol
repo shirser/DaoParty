@@ -54,7 +54,10 @@ contract DaoParty is Ownable {
         uint256 votesFor;
         uint256 votesAgainst;
         uint256 deadline; // Timestamp окончания голосования
+        uint256 likes;         // Новое поле: количество лайков
+        bool openForVoting;    // Новое поле: предложение открыто для голосования
         mapping(address => bool) voted;
+        mapping(address => bool) liked; // Новое поле: отслеживание лайков
     }
 
     Proposal[] public proposals;
@@ -62,6 +65,8 @@ contract DaoParty is Ownable {
     event ProposalCreated(uint256 proposalId, string description, uint256 deadline);
     event Voted(uint256 proposalId, address voter, bool support);
     event ProposalFinalized(uint256 proposalId);
+    // Новое событие: предложение открыто для голосования
+    event ProposalOpen(uint256 proposalId);
     // Обновлено событие KycUpdated: добавлен параметр documentType (можно использовать пустую строку, если не требуется)
     event KycUpdated(address indexed user, bool verified, uint256 expiry, string documentType);
     event NftContractUpdated(address indexed nftAddress);
@@ -142,16 +147,19 @@ contract DaoParty is Ownable {
         newProposal.votesFor = 0;
         newProposal.votesAgainst = 0;
         newProposal.deadline = block.timestamp + votingPeriod;
+        newProposal.likes = 0;
+        newProposal.openForVoting = false;
 
         emit ProposalCreated(proposalId, description, newProposal.deadline);
         return true;
     }
 
     /// @notice Функция для голосования за предложение. Доступна только для верифицированных пользователей.
-    /// При каждом голосовании происходит проверка возможности досрочного завершения голосования.
+    /// Перед голосованием проверяем, что предложение открыто для голосования.
     function vote(uint256 proposalId, bool support) external onlyVerified {
         require(proposalId < proposals.length, "Invalid proposal ID");
         Proposal storage p = proposals[proposalId];
+        require(p.openForVoting, "Proposal is not open for voting");
         require(!p.completed, "Proposal already finalized");
         require(block.timestamp <= p.deadline, "Voting period has ended");
         require(!p.voted[msg.sender], "Already voted");
@@ -167,10 +175,7 @@ contract DaoParty is Ownable {
         // Если maxVoters установлен, проверяем возможность досрочной финализации
         if (maxVoters > 0) {
             uint256 totalVotes = p.votesFor + p.votesAgainst;
-            // Остаток голосов, которые ещё могут быть отданы
             uint256 remainingVotes = (maxVoters > totalVotes) ? (maxVoters - totalVotes) : 0;
-
-            // Если лидер имеет преимущество, которое невозможно компенсировать оставшимися голосами, завершаем голосование
             if (p.votesFor >= p.votesAgainst) {
                 if (p.votesFor - p.votesAgainst > remainingVotes) {
                     p.completed = true;
@@ -234,5 +239,22 @@ contract DaoParty is Ownable {
         kycDocumentType[msg.sender] = "";
         emit KycUpdated(msg.sender, false, 0, "");
         emit KycResetRequested(msg.sender);
+    }
+
+    /// @notice Функция для лайка предложения. Доступна только для верифицированных пользователей.
+    /// Если количество лайков достигает 1% от maxVoters, предложение открывается для голосования.
+    function likeProposal(uint256 proposalId) external onlyVerified returns (bool) {
+        require(proposalId < proposals.length, "Invalid proposal ID");
+        Proposal storage p = proposals[proposalId];
+        require(!p.liked[msg.sender], "You already liked this proposal");
+        p.liked[msg.sender] = true;
+        p.likes++;
+
+        // Если установлено значение maxVoters, считаем, что threshold = maxVoters / 100 (1%)
+        if (maxVoters > 0 && p.likes * 100 >= maxVoters) {
+            p.openForVoting = true;
+            emit ProposalOpen(proposalId);
+        }
+        return true;
     }
 }

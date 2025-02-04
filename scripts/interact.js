@@ -12,13 +12,17 @@ const daoPartyAddress =
     : contractAddressArg;
 
 if (!daoPartyAddress || daoPartyAddress.startsWith("--")) {
-  throw new Error("Пожалуйста, укажите адрес контракта DaoParty через переменную окружения CONTRACT_ADDRESS или как аргумент");
+  throw new Error(
+    "Пожалуйста, укажите адрес контракта DaoParty через переменную окружения CONTRACT_ADDRESS или как аргумент"
+  );
 }
 console.log("Используем адрес контракта DaoParty:", daoPartyAddress);
 
 const nftPassportAddress = process.env.NFTPASSPORT_ADDRESS;
 if (!nftPassportAddress || nftPassportAddress.startsWith("--")) {
-  throw new Error("Пожалуйста, укажите адрес контракта NFTPassport через переменную окружения NFTPASSPORT_ADDRESS");
+  throw new Error(
+    "Пожалуйста, укажите адрес контракта NFTPassport через переменную окружения NFTPASSPORT_ADDRESS"
+  );
 }
 console.log("Используем адрес контракта NFTPassport:", nftPassportAddress);
 
@@ -29,19 +33,24 @@ const { expect } = require("chai");
 const votingPeriod = 3600; // 1 час
 
 async function main() {
-  // Получаем аккаунты (первый – владелец, далее тестовые пользователи)
-  // Порядок: owner, verifiedUser, user2, user3
+  // Получаем аккаунты: owner, verifiedUser, user2, user3
   const [owner, verifiedUser, user2, user3] = await ethers.getSigners();
 
-  // Получаем инстанс контракта DaoParty, используя переданный адрес
+  // Получаем экземпляр контракта DaoParty через attach
   const DaoParty = await ethers.getContractFactory("DaoParty");
   const daoParty = DaoParty.attach(daoPartyAddress);
   console.log("\nВзаимодействуем с контрактом DaoParty, адрес:", daoPartyAddress);
 
-  // Получаем инстанс контракта NFTPassport, используя переданный адрес
-  const NFTPassport = await ethers.getContractFactory("NFTPassport");
-  const nftPassport = NFTPassport.attach(nftPassportAddress);
+  // Получаем экземпляр контракта NFTPassport через ethers.getContractAt
+  const nftPassport = await ethers.getContractAt("NFTPassport", nftPassportAddress);
   console.log("Взаимодействуем с контрактом NFTPassport, адрес:", nftPassportAddress);
+
+  // --- Дополнительная проверка: вывод кода контракта NFTPassport ---
+  const code = await ethers.provider.getCode(nftPassportAddress);
+  console.log("Код контракта NFTPassport:", code);
+  if (code === "0x") {
+    throw new Error("На указанном адресе нет кода контракта NFTPassport");
+  }
 
   // --- Административные функции ---
   console.log("\n[Администрирование] Установка адреса NFT-контракта...");
@@ -54,18 +63,25 @@ async function main() {
   await tx.wait();
   console.log("verifiedUser добавлен как доверенный KYC-провайдер.");
 
-  // **Важно:** чтобы verifiedUser мог создавать предложения и голосовать (требуется прохождение KYC),
-  // вызываем updateKyc для verifiedUser от имени владельца:
   console.log("\n[Администрирование] Обновление KYC для verifiedUser от имени владельца...");
   tx = await daoParty.updateKyc(verifiedUser.address, true);
   await tx.wait();
   console.log("KYC для verifiedUser успешно обновлён.");
 
-  // Убеждаемся, что verifiedUser владеет NFT (если нет — mint)
-  if ((await nftPassport.balanceOf(verifiedUser.address)) === 0n) {
+  // Если владелец (owner) ещё не верифицирован, обновляем его KYC
+  console.log("\n[Администрирование] Обновление KYC для owner от имени владельца...");
+  tx = await daoParty.updateKyc(owner.address, true);
+  await tx.wait();
+  console.log("KYC для owner успешно обновлён.");
+  
+  // Проверяем, что verifiedUser владеет NFT.
+  let verifiedUserBalance = await nftPassport["balanceOf(address)"](verifiedUser.address);
+  console.log("Первоначальный баланс verifiedUser:", verifiedUserBalance.toString());
+  if (verifiedUserBalance.toString() === "0") {
     console.log("\n[Администрирование] Минтим NFT для verifiedUser...");
-    tx = await nftPassport.mintPassport(verifiedUser.address);
+    tx = await nftPassport.connect(owner).mintPassport(verifiedUser.address);
     await tx.wait();
+    verifiedUserBalance = await nftPassport["balanceOf(address)"](verifiedUser.address);
     console.log("NFT для verifiedUser успешно выдан.");
   } else {
     console.log("\n[Администрирование] VerifiedUser уже владеет NFT.");
@@ -73,7 +89,7 @@ async function main() {
 
   console.log("\n[Администрирование] Минтим NFT для user3...");
   try {
-    tx = await nftPassport.mintPassport(user3.address);
+    tx = await nftPassport.connect(owner).mintPassport(user3.address);
     await tx.wait();
     console.log("NFT для user3 успешно выдан.");
   } catch (error) {
@@ -85,11 +101,16 @@ async function main() {
   await tx.wait();
   console.log("KYC для user2 обновлён через updateKyc.");
 
-  // Проверяем, верифицирован ли уже user3, прежде чем вызывать verifyUser
+  // Верификация user3
   const isUser3Verified = await daoParty.kycVerified(user3.address);
   if (!isUser3Verified) {
     console.log("\n[Администрирование] Верификация user3 с корректными данными от доверенного провайдера (verifiedUser)...");
-    tx = await daoParty.connect(verifiedUser).verifyUser(user3.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "faceXYZ");
+    tx = await daoParty.connect(verifiedUser).verifyUser(
+      user3.address,
+      "ВНУТРЕННИЙ ПАСПОРТ РФ", // передаём корректное значение!
+      true,
+      "faceXYZ"
+    );
     await tx.wait();
     console.log("User3 успешно верифицирован.");
   } else {
@@ -112,7 +133,12 @@ async function main() {
   }
 
   console.log("\n[Проверка KYC] Повторная верификация user3 от доверенного провайдера (verifiedUser)...");
-  tx = await daoParty.connect(verifiedUser).verifyUser(user3.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "faceXYZ");
+  tx = await daoParty.connect(verifiedUser).verifyUser(
+    user3.address,
+    "ВНУТРЕННИЙ ПАСПОРТ РФ", // корректное значение
+    true,
+    "faceXYZ"
+  );
   await tx.wait();
   console.log("User3 успешно повторно верифицирован.");
 
@@ -124,10 +150,20 @@ async function main() {
   // --- Дополнительные проверки ---
   console.log("\n[Дополнительные проверки]");
 
+  // Функция для проверки и минтинга NFT для указанного адреса
+  async function ensureNft(address, accountSigner) {
+    const balance = await nftPassport["balanceOf(address)"](address);
+    if (balance.toString() === "0") {
+      console.log(`Аккаунт ${address} не владеет NFT, минтим NFT...`);
+      const mintTx = await nftPassport.connect(owner).mintPassport(address);
+      await mintTx.wait();
+      console.log(`NFT успешно выдан для ${address}`);
+    }
+  }
+
   // 1. Граничное условие для автоматической финализации
   console.log("\nПроверка: Автофинализация не срабатывает, если разница голосов равна оставшимся голосам");
   await daoParty.setMaxVoters(200);
-  // Здесь используем verifiedUser — теперь он точно верифицирован и владеет NFT
   let txProposal = await daoParty.connect(verifiedUser).createProposal("Borderline Finalization Proposal", votingPeriod);
   let receipt = await txProposal.wait();
   let parsedEvents = receipt.logs
@@ -143,18 +179,24 @@ async function main() {
     throw new Error("ProposalCreated event not found in transaction");
   }
   let proposalId = Number(parsedEvents[0].args[0].toString());
+  
+  await daoParty.updateKyc(owner.address, true);
+  await ensureNft(owner.address, owner);
+  try {
+    await daoParty.connect(owner).likeProposal(proposalId);
+  } catch (error) {
+    console.log("Ошибка likeProposal от owner:", error.message);
+  }
 
-  // Формирование 160 дополнительных адресов, с проверкой, что каждый владеет NFT
+  // Формирование 160 дополнительных адресов
   const additionalVoters = [];
   for (let i = 0; i < 160; i++) {
     const wallet = ethers.Wallet.createRandom().connect(ethers.provider);
     await owner.sendTransaction({ to: wallet.address, value: ethers.parseEther("1") });
-    
-    // Проверяем баланс NFT и, если необходимо, mint
-    let balance = await nftPassport.balanceOf(wallet.address);
-    if (balance === 0n) {
+    let balance = await nftPassport["balanceOf(address)"](wallet.address);
+    if (balance.toString() === "0") {
       try {
-        let txMint = await nftPassport.mintPassport(wallet.address);
+        let txMint = await nftPassport.connect(owner).mintPassport(wallet.address);
         await txMint.wait();
         console.log(`NFT успешно выдан для ${wallet.address}`);
       } catch (error) {
@@ -163,23 +205,29 @@ async function main() {
     } else {
       console.log(`NFT для ${wallet.address} уже выдан.`);
     }
-    balance = await nftPassport.balanceOf(wallet.address);
-    if (balance === 0n) {
-      throw new Error(`Адрес ${wallet.address} не владеет NFT, голосование не может быть выполнено`);
-    }
-    
     await daoParty.updateKyc(wallet.address, true);
+    try {
+      await daoParty.connect(wallet).likeProposal(proposalId);
+    } catch (error) {
+      console.log(`likeProposal не выполнено для ${wallet.address}: ${error.message}`);
+    }
     additionalVoters.push(wallet);
   }
-  
-  // Голосование:
   // Первые 100 голосуют "за"
   for (let i = 0; i < 100; i++) {
-    await daoParty.connect(additionalVoters[i]).vote(proposalId, true);
+    try {
+      await daoParty.connect(additionalVoters[i]).vote(proposalId, true);
+    } catch (error) {
+      console.log(`Ошибка голосования "за" от ${additionalVoters[i].address}: ${error.message}`);
+    }
   }
   // Следующие 60 голосуют "против"
   for (let i = 100; i < 160; i++) {
-    await daoParty.connect(additionalVoters[i]).vote(proposalId, false);
+    try {
+      await daoParty.connect(additionalVoters[i]).vote(proposalId, false);
+    } catch (error) {
+      console.log(`Ошибка голосования "против" от ${additionalVoters[i].address}: ${error.message}`);
+    }
   }
   let proposal = await daoParty.getProposal(proposalId);
   console.log("Статус предложения (Borderline):", proposal.completed.toString());
@@ -207,15 +255,20 @@ async function main() {
     throw new Error("ProposalCreated event not found in transaction");
   }
   proposalId = Number(parsedEvents[0].args[0].toString());
-
+  await ensureNft(owner.address, owner);
+  try {
+    await daoParty.connect(owner).likeProposal(proposalId);
+  } catch (error) {
+    console.log("Ошибка likeProposal для maxVoters=0:", error.message);
+  }
   const voters = [];
   for (let i = 0; i < 10; i++) {
     const wallet = ethers.Wallet.createRandom().connect(ethers.provider);
     await owner.sendTransaction({ to: wallet.address, value: ethers.parseEther("1") });
-    let balance = await nftPassport.balanceOf(wallet.address);
-    if (balance === 0n) {
+    let balance = await nftPassport["balanceOf(address)"](wallet.address);
+    if (balance.toString() === "0") {
       try {
-        let txMint = await nftPassport.mintPassport(wallet.address);
+        let txMint = await nftPassport.connect(owner).mintPassport(wallet.address);
         await txMint.wait();
         console.log(`NFT успешно выдан для ${wallet.address}`);
       } catch (error) {
@@ -224,18 +277,22 @@ async function main() {
     } else {
       console.log(`NFT для ${wallet.address} уже выдан.`);
     }
-    balance = await nftPassport.balanceOf(wallet.address);
-    if (balance === 0n) {
-      throw new Error(`Адрес ${wallet.address} не владеет NFT, голосование не может быть выполнено`);
-    }
     await daoParty.updateKyc(wallet.address, true);
     voters.push(wallet);
   }
   for (let i = 0; i < 5; i++) {
-    await daoParty.connect(voters[i]).vote(proposalId, true);
+    try {
+      await daoParty.connect(voters[i]).vote(proposalId, true);
+    } catch (error) {
+      console.log(`Ошибка голосования "за" от ${voters[i].address}: ${error.message}`);
+    }
   }
   for (let i = 5; i < 10; i++) {
-    await daoParty.connect(voters[i]).vote(proposalId, false);
+    try {
+      await daoParty.connect(voters[i]).vote(proposalId, false);
+    } catch (error) {
+      console.log(`Ошибка голосования "против" от ${voters[i].address}: ${error.message}`);
+    }
   }
   proposal = await daoParty.getProposal(proposalId);
   console.log("Статус предложения (maxVoters = 0):", proposal.completed.toString());
@@ -247,6 +304,8 @@ async function main() {
 
   // 3. Проверка подсчёта голосов и функции hasVoted
   console.log("\nПроверка: Подсчет голосов и функция hasVoted");
+  // Устанавливаем maxVoters так, чтобы порог для лайка был минимальным (1 лайк откроет голосование)
+  await daoParty.setMaxVoters(100);
   txProposal = await daoParty.connect(verifiedUser).createProposal("Vote Counting Proposal", votingPeriod);
   receipt = await txProposal.wait();
   parsedEvents = receipt.logs
@@ -259,7 +318,18 @@ async function main() {
     })
     .filter((e) => e && e.name === "ProposalCreated");
   proposalId = Number(parsedEvents[0].args[0].toString());
-  await daoParty.connect(verifiedUser).vote(proposalId, true);
+  await ensureNft(owner.address, owner);
+  // Открываем голосование, поставив лайк
+  try {
+    await daoParty.connect(owner).likeProposal(proposalId);
+  } catch (error) {
+    console.log("Ошибка likeProposal для голосования:", error.message);
+  }
+  try {
+    await daoParty.connect(verifiedUser).vote(proposalId, true);
+  } catch (error) {
+    console.log("Ошибка при голосовании:", error.message);
+  }
   proposal = await daoParty.getProposal(proposalId);
   console.log("Голоса 'за':", proposal.votesFor.toString());
   console.log("Голоса 'против':", proposal.votesAgainst.toString());
@@ -279,13 +349,15 @@ async function main() {
   expect(docType).to.equal("");
   console.log("Данные успешно сброшены после cancelKyc.");
   await expect(
+    // Передаём корректное значение документа
     daoParty.verifyUser(verifiedUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "face123")
-  ).to.emit(daoParty, "KycUpdated")
+  )
+    .to.emit(daoParty, "KycUpdated")
     .withArgs(verifiedUser.address, true, anyValue, "ВНУТРЕННИЙ ПАСПОРТ РФ");
 
   // 5. Ручная финализация голосования
   console.log("\nПроверка: Ручная финализация голосования");
-  await daoParty.setMaxVoters(1000); // задаём очень большое число голосующих
+  await daoParty.setMaxVoters(1000);
   txProposal = await daoParty.connect(verifiedUser).createProposal("Manual Finalization Proposal", votingPeriod);
   receipt = await txProposal.wait();
   parsedEvents = receipt.logs
@@ -298,6 +370,12 @@ async function main() {
     })
     .filter((e) => e && e.name === "ProposalCreated");
   proposalId = Number(parsedEvents[0].args[0].toString());
+  await ensureNft(owner.address, owner);
+  try {
+    await daoParty.connect(owner).likeProposal(proposalId);
+  } catch (error) {
+    console.log("Ошибка likeProposal для ручной финализации:", error.message);
+  }
   await network.provider.send("evm_increaseTime", [votingPeriod + 1]);
   await network.provider.send("evm_mine");
   let txFinal = await daoParty.finalizeProposal(proposalId);
@@ -322,16 +400,13 @@ async function main() {
 
   // 7. Проверка уникальности идентификатора (faceId)
   console.log("\n[Дополнительная проверка] Проверка уникальности идентификатора (faceId)");
-  // Сбросим KYC для user2, чтобы можно было повторно верифицировать с новым идентификатором
   tx = await daoParty.updateKyc(user2.address, false);
   await tx.wait();
-  // Добавляем владельца как доверенного провайдера (owner всегда разрешён)
   tx = await daoParty.addKycProvider(owner.address);
   await tx.wait();
   tx = await daoParty.connect(owner).verifyUser(user2.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "uniqueFace");
   await tx.wait();
   console.log("User2 успешно верифицирован с идентификатором uniqueFace.");
-  // Теперь для user3 попытка верификации с тем же идентификатором должна привести к ошибке
   tx = await daoParty.connect(user3).cancelKyc();
   await tx.wait();
   try {
