@@ -336,15 +336,16 @@ async function main() {
     expect(await daoParty.hasVoted(proposalId, verifiedUser.address)).to.equal(true);
     expect(await daoParty.hasVoted(proposalId, user2.address)).to.equal(false);
 
-    // 4. Проверка сброса данных после cancelKyc
+    // --- Проверка сброса данных после cancelKyc ---
     console.log("\nПроверка: Сброс данных после cancelKyc");
     await daoParty.connect(verifiedUser).cancelKyc();
-    let isVerified = await daoParty.kycVerified(verifiedUser.address);
-    let expiry = await daoParty.kycExpiry(verifiedUser.address);
-    let docType = await daoParty.kycDocumentType(verifiedUser.address);
-    expect(isVerified).to.equal(false);
-    expect(expiry).to.equal(0);
-    expect(docType).to.equal("");
+    let isVerifiedStatus = await daoParty.kycVerified(verifiedUser.address);
+    console.log("После отмены KYC, статус:", isVerifiedStatus.toString());
+    let expiryStatus = await daoParty.kycExpiry(verifiedUser.address);
+    let docTypeStatus = await daoParty.kycDocumentType(verifiedUser.address);
+    expect(isVerifiedStatus).to.equal(false);
+    expect(expiryStatus).to.equal(0);
+    expect(docTypeStatus).to.equal("");
     console.log("Данные успешно сброшены после cancelKyc.");
     await expect(
         // В данном случае вызов производится от владельца (owner) – он имеет право как KYC-провайдер
@@ -352,6 +353,40 @@ async function main() {
     )
         .to.emit(daoParty, "KycUpdated")
         .withArgs(verifiedUser.address, true, anyValue, "ВНУТРЕННИЙ ПАСПОРТ РФ");
+
+    // Новый функционал: Ограничение частоты создания предложений
+    console.log("\n[Проверка ограничения частоты создания предложений]");
+    // 1. Создаем предложение от verifiedUser
+    console.log("Создаем первое предложение от verifiedUser...");
+    tx = await daoParty.connect(verifiedUser).createProposal("Frequency Test Proposal 1", votingPeriod);
+    await tx.wait();
+    console.log("Первое предложение успешно создано.");
+
+    // 2. Попытка создать сразу второе предложение от того же пользователя должна завершиться ошибкой
+    console.log("Пытаемся создать второе предложение от verifiedUser сразу...");
+    try {
+        tx = await daoParty.connect(verifiedUser).createProposal("Frequency Test Proposal 2", votingPeriod);
+        await tx.wait();
+        console.log("Ошибка: Второе предложение создано, хотя должно быть запрещено.");
+    } catch (error) {
+        console.log("Ожидаемая ошибка при создании второго предложения:", error.message);
+    }
+
+    // 3. Увеличиваем время на 30 дней (2592000 секунд) + 1 секунда
+    console.log("Увеличиваем время на 30 дней...");
+    await network.provider.send("evm_increaseTime", [2592000 + 1]);
+    await network.provider.send("evm_mine");
+
+    // 4. После смещения времени срок действия KYC истекает, поэтому обновляем KYC для verifiedUser (владелец может обновить KYC)
+    console.log("Обновляем KYC для verifiedUser, чтобы продлить срок действия...");
+    tx = await daoParty.updateKyc(verifiedUser.address, true);
+    await tx.wait();
+
+    // 5. Теперь повторная попытка создания предложения должна пройти успешно
+    console.log("Пытаемся создать новое предложение от verifiedUser после 30 дней...");
+    tx = await daoParty.connect(verifiedUser).createProposal("Frequency Test Proposal 3", votingPeriod);
+    await tx.wait();
+    console.log("Новое предложение успешно создано после 30 дней.");
 
     // 5. Ручная финализация голосования
     console.log("\nПроверка: Ручная финализация голосования");

@@ -48,6 +48,10 @@ contract DaoParty is Ownable {
     mapping(address => string) public userIdentifier;
     // -------------------------------------------------------------------
 
+    // Новый мэппинг для ограничения частоты создания предложений:
+    // Хранит timestamp последнего создания предложения для каждого пользователя.
+    mapping(address => uint256) public lastProposalTimestamp;
+
     // Структура обычного предложения
     struct Proposal {
         string description;
@@ -174,7 +178,16 @@ contract DaoParty is Ownable {
     }
 
     /// @notice Функция для создания предложения. Доступна только для верифицированных пользователей.
+    /// Ограничение: пользователь может создавать не более одного предложения в 30 дней.
     function createProposal(string memory description, uint256 votingPeriod) external onlyVerified returns (bool) {
+        // Проверяем, что с момента последнего создания предложения прошло не менее 30 дней (2592000 секунд)
+        require(
+            lastProposalTimestamp[msg.sender] == 0 || block.timestamp >= lastProposalTimestamp[msg.sender] + 2592000,
+            "You can only create one proposal every 30 days"
+        );
+        // Обновляем время создания последнего предложения для пользователя
+        lastProposalTimestamp[msg.sender] = block.timestamp;
+
         proposals.push();
         uint256 proposalId = proposals.length - 1;
         Proposal storage newProposal = proposals[proposalId];
@@ -301,7 +314,7 @@ contract DaoParty is Ownable {
     /// @notice Функция для создания предложения по изменению состава администраторов.
     /// Параметры:
     /// - adminCandidate: адрес кандидата на добавление или удаление.
-    /// - toAdd: если true – предложение на добавление, если false – на удаление.
+    /// - toAdd: если true – предложение на добавление, если false – на его удаление.
     /// - description: описание предложения.
     /// - votingPeriod: период голосования в секундах.
     /// Требование: пользователь должен быть верифицирован.
