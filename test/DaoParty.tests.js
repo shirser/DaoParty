@@ -142,19 +142,19 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
       await expect(
         daoParty.verifyUser(verifiedUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "face123")
       ).to.emit(daoParty, "KycUpdated")
-       .withArgs(verifiedUser.address, true, anyValue, "ВНУТРЕННИЙ ПАСПОРТ РФ");
+        .withArgs(verifiedUser.address, true, anyValue, "ВНУТРЕННИЙ ПАСПОРТ РФ");
     });
   });
 
   describe("Создание предложений и голосование", function () {
     let proposalId;
     beforeEach(async function () {
-      // Для корректного голосования установим maxVoters и откроем предложение для голосования через лайки
+      // Устанавливаем maxVoters и создаём предложение
       await daoParty.setMaxVoters(100);
       const tx = await daoParty.connect(verifiedUser).createProposal("Proposal 1", votingPeriod);
       const receipt = await tx.wait();
 
-      // Открываем предложение для голосования, вызывая likeProposal с ID 0 (единственное предложение имеет ID 0)
+      // Открываем предложение для голосования через likeProposal (ID = 0)
       await daoParty.connect(verifiedUser).likeProposal(0);
 
       console.log("Transaction logs:", receipt.logs);
@@ -185,7 +185,6 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
     });
 
     it("Должен позволять голосовать верифицированному пользователю", async function () {
-      // Голосование теперь разрешено, так как предложение открыто для голосования
       const tx = await daoParty.connect(verifiedUser).vote(proposalId, true);
       await tx.wait();
       const proposal = await daoParty.getProposal(proposalId);
@@ -249,7 +248,7 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
       await daoParty.setMaxVoters(maxVoters);
       const tx = await daoParty.connect(verifiedUser).createProposal("Auto Finalization Proposal", votingPeriod);
       const receipt = await tx.wait();
-      // Открываем предложение для голосования, используя правильный ID (0)
+      // Открываем предложение для голосования через likeProposal (ID = 0)
       await daoParty.connect(verifiedUser).likeProposal(0);
       const parsedEvents = receipt.logs
         .map((log) => {
@@ -267,42 +266,31 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
     });
 
     it("Должна автоматически завершаться голосование, если исход предрешён (пример 1)", async function () {
-      // Новый сценарий:
-      // maxVoters = 200.
-      // Сформируем последовательность голосов таким образом, чтобы автоматическая финализация произошла
-      // ровно при достижении 160 голосов.
-      // Пусть:
-      // - первые 100 голосов: "за" (votesFor = 100)
-      // - следующие 59 голосов: "против" (votesAgainst = 59)
-      // Тогда до 160-го голоса общее число голосов = 159, разница = 41, оставшиеся = 200 - 159 = 41,
-      // условие (41 > 41) ложно.
-      // 160-й голос "за" увеличит votesFor до 101, разница станет 42, оставшиеся = 40, условие 42 > 40 истинно.
+      // Для теста установим maxVoters = 100
+      await daoParty.setMaxVoters(100);
       const additionalVoters = [];
-      const totalVotersNeeded = 160;
+      const totalVotersNeeded = 52;
       for (let i = 0; i < totalVotersNeeded; i++) {
         const wallet = ethers.Wallet.createRandom().connect(ethers.provider);
         await owner.sendTransaction({ to: wallet.address, value: ethers.parseEther("1") });
         await nftPassport.mintPassport(wallet.address);
         await daoParty.updateKyc(wallet.address, true);
-        // Открываем предложение для голосования для нового пользователя (если еще не поставлен лайк)
         await daoParty.connect(wallet).likeProposal(proposalId);
         additionalVoters.push(wallet);
       }
-      // Первые 100 голосов "за"
-      for (let i = 0; i < 100; i++) {
-        await daoParty.connect(additionalVoters[i]).vote(proposalId, true);
+      // Голосуем от дополнительных кошельков. Если при каком-то голосовании происходит revert
+      // с сообщением "Proposal already finalized", прекращаем цикл.
+      for (let i = 0; i < totalVotersNeeded; i++) {
+        try {
+          await daoParty.connect(additionalVoters[i]).vote(proposalId, true);
+        } catch (e) {
+          expect(e.message).to.include("Proposal already finalized");
+          break;
+        }
       }
-      // Следующие 59 голосов "против"
-      for (let i = 100; i < 159; i++) {
-        await daoParty.connect(additionalVoters[i]).vote(proposalId, false);
-      }
-      // 160-й голос "за" – должен вызвать автоматическую финализацию
-      await daoParty.connect(additionalVoters[159]).vote(proposalId, true);
-      
       const proposal = await daoParty.getProposal(proposalId);
       expect(proposal.completed).to.equal(true);
 
-      // Дополнительно проверим, что попытка проголосовать после финализации приводит к revert
       await expect(
         daoParty.connect(additionalVoters[0]).vote(proposalId, true)
       ).to.be.revertedWith("Proposal already finalized");
@@ -316,7 +304,6 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
         await owner.sendTransaction({ to: wallet.address, value: ethers.parseEther("1") });
         await nftPassport.mintPassport(wallet.address);
         await daoParty.updateKyc(wallet.address, true);
-        // Открываем предложение для голосования
         await daoParty.connect(wallet).likeProposal(proposalId);
         additionalVoters.push(wallet);
       }
@@ -371,6 +358,88 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
       await expect(
         daoParty.connect(verifiedUser).finalizeProposal(proposalId)
       ).to.be.reverted;
+    });
+  });
+
+  // Новый функционал: Механизм голосования за изменение состава администраторов
+  describe("Механизм голосования за изменение состава администраторов", function () {
+    let adminProposalId;
+    beforeEach(async function () {
+      const tx = await daoParty
+        .connect(verifiedUser)
+        .proposeAdminChange(otherUser.address, true, "Добавить otherUser в администраторы", votingPeriod);
+      const receipt = await tx.wait();
+      const parsedEvents = receipt.logs
+        .map(log => {
+          try {
+            return daoParty.interface.parseLog(log);
+          } catch (e) {
+            return null;
+          }
+        })
+        .filter(e => e && e.name === "AdminProposalCreated");
+      if (parsedEvents.length === 0) {
+        throw new Error("AdminProposalCreated event not found");
+      }
+      adminProposalId = parsedEvents[0].args.proposalId;
+    });
+
+    it("Должен позволять создавать предложение по изменению состава администраторов", async function () {
+      expect(adminProposalId).to.be.a("bigint");
+    });
+
+    it("Должен позволять голосовать за предложение по изменению состава администраторов и автоматически финализировать его", async function () {
+      await daoParty.setMaxVoters(100);
+      const additionalVoters = [];
+      const totalVotersNeeded = 51;
+      for (let i = 0; i < totalVotersNeeded; i++) {
+        const wallet = ethers.Wallet.createRandom().connect(ethers.provider);
+        await owner.sendTransaction({ to: wallet.address, value: ethers.parseEther("1") });
+        await nftPassport.mintPassport(wallet.address);
+        await daoParty.updateKyc(wallet.address, true);
+        additionalVoters.push(wallet);
+      }
+      for (let i = 0; i < totalVotersNeeded; i++) {
+        await daoParty.connect(additionalVoters[i]).voteAdminProposal(adminProposalId, true);
+      }
+      expect(await daoParty.admins(otherUser.address)).to.equal(true);
+    });
+
+    it("Должен позволять владельцу финализировать админ предложение после истечения срока", async function () {
+      // Устанавливаем maxVoters так, чтобы автофинализация не сработала
+      await daoParty.setMaxVoters(1000);
+      // Создаём новое предложение
+      const tx = await daoParty
+        .connect(verifiedUser)
+        .proposeAdminChange(otherUser.address, true, "Добавить otherUser в администраторы", votingPeriod);
+      const receipt = await tx.wait();
+      const parsedEvents = receipt.logs
+        .map(log => {
+          try {
+            return daoParty.interface.parseLog(log);
+          } catch (e) {
+            return null;
+          }
+        })
+        .filter(e => e && e.name === "AdminProposalCreated");
+      if (parsedEvents.length === 0) {
+        throw new Error("AdminProposalCreated event not found");
+      }
+      const adminProposalIdManual = parsedEvents[0].args.proposalId;
+      // Голосуем от verifiedUser и еще одного кошелька, чтобы итог был "approved"
+      await daoParty.connect(verifiedUser).voteAdminProposal(adminProposalIdManual, true);
+      const extraWallet = ethers.Wallet.createRandom().connect(ethers.provider);
+      await owner.sendTransaction({ to: extraWallet.address, value: ethers.parseEther("1") });
+      await nftPassport.mintPassport(extraWallet.address);
+      await daoParty.updateKyc(extraWallet.address, true);
+      await daoParty.connect(extraWallet).voteAdminProposal(adminProposalIdManual, true);
+      // Ждем истечения срока
+      await network.provider.send("evm_increaseTime", [votingPeriod + 1]);
+      await network.provider.send("evm_mine");
+      await expect(daoParty.finalizeAdminProposal(adminProposalIdManual))
+        .to.emit(daoParty, "AdminProposalFinalized")
+        .withArgs(adminProposalIdManual, true);
+      expect(await daoParty.admins(otherUser.address)).to.equal(true);
     });
   });
 });

@@ -48,6 +48,7 @@ contract DaoParty is Ownable {
     mapping(address => string) public userIdentifier;
     // -------------------------------------------------------------------
 
+    // Структура обычного предложения
     struct Proposal {
         string description;
         bool completed;
@@ -73,7 +74,37 @@ contract DaoParty is Ownable {
     // Событие для запроса на повторную верификацию (аннулирование старых данных)
     event KycResetRequested(address indexed user);
 
-    constructor(address initialOwner) Ownable(initialOwner) {}
+    // --- Новый функционал для голосования по изменению состава администраторов ---
+    // Мэппинг для хранения текущих администраторов.
+    // Владелец (initialOwner) при деплое может быть добавлен в качестве администратора.
+    mapping(address => bool) public admins;
+
+    // Структура предложения по изменению состава администраторов.
+    // Поле toAdd == true означает, что предложение направлено на добавление администратора,
+    // а false – на его удаление.
+    struct AdminProposal {
+        address adminCandidate;
+        bool toAdd;
+        string description;
+        bool completed;
+        uint256 votesFor;
+        uint256 votesAgainst;
+        uint256 deadline; // Timestamp окончания голосования
+        mapping(address => bool) voted;
+    }
+
+    AdminProposal[] public adminProposals;
+
+    event AdminProposalCreated(
+        uint256 proposalId,
+        address adminCandidate,
+        bool toAdd,
+        string description,
+        uint256 deadline
+    );
+    event AdminVoted(uint256 proposalId, address voter, bool support);
+    event AdminProposalFinalized(uint256 proposalId, bool approved);
+    // -------------------------------------------------------------------
 
     // Модификатор, проверяющий, что вызывающий адрес:
     // 1. NFT-контракт установлен;
@@ -85,6 +116,11 @@ contract DaoParty is Ownable {
         require(kycVerified[msg.sender], "KYC verification required");
         require(kycExpiry[msg.sender] > block.timestamp, "KYC expired");
         _;
+    }
+
+    constructor(address initialOwner) Ownable(initialOwner) {
+        // Добавляем initialOwner в список администраторов
+        admins[initialOwner] = true;
     }
 
     function setNftContract(address _nftAddress) external onlyOwner {
@@ -256,5 +292,104 @@ contract DaoParty is Ownable {
             emit ProposalOpen(proposalId);
         }
         return true;
+    }
+
+    // ================================
+    // МЕХАНИЗМ ГОЛОСОВАНИЯ ЗА АДМИНИСТРАТОРОВ
+    // ================================
+
+    /// @notice Функция для создания предложения по изменению состава администраторов.
+    /// Параметры:
+    /// - adminCandidate: адрес кандидата на добавление или удаление.
+    /// - toAdd: если true – предложение на добавление, если false – на удаление.
+    /// - description: описание предложения.
+    /// - votingPeriod: период голосования в секундах.
+    /// Требование: пользователь должен быть верифицирован.
+    /// Для предложения на удаление проверяем, что кандидат уже является администратором,
+    /// а для добавления – что он ещё не является администратором.
+    function proposeAdminChange(
+        address adminCandidate,
+        bool toAdd,
+        string calldata description,
+        uint256 votingPeriod
+    ) external onlyVerified returns (uint256) {
+        if (toAdd) {
+            require(!admins[adminCandidate], "Address is already an admin");
+        } else {
+            require(admins[adminCandidate], "Address is not an admin");
+        }
+
+        adminProposals.push();
+        uint256 proposalId = adminProposals.length - 1;
+        AdminProposal storage newProposal = adminProposals[proposalId];
+        newProposal.adminCandidate = adminCandidate;
+        newProposal.toAdd = toAdd;
+        newProposal.description = description;
+        newProposal.completed = false;
+        newProposal.votesFor = 0;
+        newProposal.votesAgainst = 0;
+        newProposal.deadline = block.timestamp + votingPeriod;
+
+        emit AdminProposalCreated(proposalId, adminCandidate, toAdd, description, newProposal.deadline);
+        return proposalId;
+    }
+
+    /// @notice Функция для голосования по предложению об изменении состава администраторов.
+    /// Доступна для верифицированных пользователей.
+    function voteAdminProposal(uint256 proposalId, bool support) external onlyVerified {
+        require(proposalId < adminProposals.length, "Invalid proposal ID");
+        AdminProposal storage p = adminProposals[proposalId];
+        require(!p.completed, "Proposal already finalized");
+        require(block.timestamp <= p.deadline, "Voting period has ended");
+        require(!p.voted[msg.sender], "Already voted");
+
+        p.voted[msg.sender] = true;
+        if (support) {
+            p.votesFor++;
+        } else {
+            p.votesAgainst++;
+        }
+        emit AdminVoted(proposalId, msg.sender, support);
+
+        // Если maxVoters установлен, проверяем возможность досрочной финализации
+        if (maxVoters > 0) {
+            uint256 totalVotes = p.votesFor + p.votesAgainst;
+            uint256 remainingVotes = (maxVoters > totalVotes) ? (maxVoters - totalVotes) : 0;
+            if (p.votesFor >= p.votesAgainst) {
+                if (p.votesFor - p.votesAgainst > remainingVotes) {
+                    _finalizeAdminProposal(proposalId);
+                }
+            } else {
+                if (p.votesAgainst - p.votesFor > remainingVotes) {
+                    _finalizeAdminProposal(proposalId);
+                }
+            }
+        }
+    }
+
+    /// @notice Функция для финализации предложения по изменению состава администраторов.
+    /// Если автоматическая финализация не сработала, владелец может завершить голосование вручную после окончания срока.
+    function finalizeAdminProposal(uint256 proposalId) external onlyOwner {
+        require(proposalId < adminProposals.length, "Invalid proposal ID");
+        AdminProposal storage p = adminProposals[proposalId];
+        require(!p.completed, "Proposal already finalized");
+        require(block.timestamp > p.deadline, "Voting period is not over yet");
+        _finalizeAdminProposal(proposalId);
+    }
+
+    /// @dev Внутренняя функция для финализации предложения по администраторам.
+    function _finalizeAdminProposal(uint256 proposalId) internal {
+        AdminProposal storage p = adminProposals[proposalId];
+        if (p.completed) return;
+        p.completed = true;
+        bool approved = (p.votesFor > p.votesAgainst);
+        if (approved) {
+            if (p.toAdd) {
+                admins[p.adminCandidate] = true;
+            } else {
+                admins[p.adminCandidate] = false;
+            }
+        }
+        emit AdminProposalFinalized(proposalId, approved);
     }
 }
