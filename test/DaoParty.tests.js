@@ -10,7 +10,7 @@ const {
 } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
 
 describe("DaoParty (обновлённая версия с KYC и NFT, используя NFTPassport)", function () {
-    let daoParty, nftPassport;
+    let daoParty, nftPassport, kycManager;
     let owner, verifiedUser, unverifiedUser, otherUser;
     const votingPeriod = 3600; // 1 час
     const KYC_VALIDITY_PERIOD = 2592000; // 30 дней в секундах
@@ -18,27 +18,35 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
     beforeEach(async function () {
     [owner, verifiedUser, unverifiedUser, otherUser] = await ethers.getSigners();
 
-        // Развёртывание NFTPassport (контракт для ментинга NFT)
+        // Развертывание NFTPassport (контракт для ментинга NFT)
         const NFTPassport = await ethers.getContractFactory("NFTPassport");
         nftPassport = await NFTPassport.deploy();
         await nftPassport.waitForDeployment();
-
         const nftPassportAddress = await nftPassport.getAddress();
         console.log("NFTPassport deployed at:", nftPassportAddress);
 
         // Выдаем NFT для verifiedUser (при необходимости другим)
         await nftPassport.mintPassport(verifiedUser.address);
 
-        // Развёртывание DaoParty
+        // Развертывание KYCManager
+        const KYCManager = await ethers.getContractFactory("KYCManager");
+        // Если конструктор KYCManager требует аргумент (например, адрес владельца), передайте его (здесь, например, owner.address)
+        kycManager = await KYCManager.deploy(owner.address);
+        await kycManager.waitForDeployment();
+        const kycManagerAddress = await kycManager.getAddress();
+        console.log("KYCManager deployed at:", kycManagerAddress);
+
+        // Развертывание DaoParty, передавая два аргумента: владельца и адрес KYCManager
         const DaoParty = await ethers.getContractFactory("DaoParty");
-        daoParty = await DaoParty.deploy(owner.address);
+        daoParty = await DaoParty.deploy(owner.address, kycManagerAddress);
         await daoParty.waitForDeployment();
 
+        // Установка адреса NFT-контракта в DaoParty
         await daoParty.setNftContract(nftPassportAddress);
 
-        // Верифицируем пользователя через verifyUser с корректными данными:
+        // Верифицируем пользователя через KYCManager с корректными данными:
         // documentType: "ВНУТРЕННИЙ ПАСПОРТ РФ", liveness: true, faceId: "face123"
-        await daoParty.verifyUser(verifiedUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "face123");
+        await kycManager.verifyUser(verifiedUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "face123");
     });
 
     describe("Функции администратора", function () {
@@ -49,34 +57,35 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
         });
 
         it("Должен позволять владельцу обновить статус KYC и выбросить событие", async function () {
-            await expect(daoParty.updateKyc(unverifiedUser.address, true))
-                .to.emit(daoParty, "KycUpdated")
+            // В данном случае обновление KYC происходит через KYCManager
+            await expect(kycManager.updateKyc(unverifiedUser.address, true))
+                .to.emit(kycManager, "KycUpdated")
                 .withArgs(unverifiedUser.address, true, anyValue, "");
         });
 
         it("Должен позволять верифицировать пользователя с корректным документом, liveness и FaceID", async function () {
             await expect(
-                    daoParty.verifyUser(otherUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "face456")
+                    kycManager.verifyUser(otherUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "face456")
                 )
-                .to.emit(daoParty, "KycUpdated")
+                .to.emit(kycManager, "KycUpdated")
                 .withArgs(otherUser.address, true, anyValue, "ВНУТРЕННИЙ ПАСПОРТ РФ");
         });
 
         it("Должен отклонять верификацию пользователя с некорректным документом", async function () {
             await expect(
-                daoParty.verifyUser(otherUser.address, "Заграничный паспорт", true, "face456")
+                kycManager.verifyUser(otherUser.address, "Заграничный паспорт", true, "face456")
             ).to.be.revertedWith("Only Russian internal passports are allowed");
         });
 
         it("Должен отклонять верификацию, если liveness check не пройдена", async function () {
             await expect(
-                daoParty.verifyUser(otherUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", false, "face456")
+                kycManager.verifyUser(otherUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", false, "face456")
             ).to.be.revertedWith("Liveness check failed");
         });
 
         it("Должен отклонять верификацию, если faceID пустой", async function () {
             await expect(
-                daoParty.verifyUser(otherUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "")
+                kycManager.verifyUser(otherUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "")
             ).to.be.revertedWith("Invalid faceID");
         });
     });
@@ -84,16 +93,18 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
     describe("Проверка требований KYC и NFT", function () {
         it("Должен отклонять создание предложения, если NFT-контракт не установлен", async function () {
             const DaoParty = await ethers.getContractFactory("DaoParty");
-            const daoPartyNoNFT = await DaoParty.deploy(owner.address);
+            // Развертывание DaoParty без установки NFT-контракта
+            const daoPartyNoNFT = await DaoParty.deploy(owner.address, await kycManager.getAddress());
             await daoPartyNoNFT.waitForDeployment();
-            await daoPartyNoNFT.updateKyc(verifiedUser.address, true);
+            // Обновляем KYC для verifiedUser через KYCManager
+            await kycManager.updateKyc(verifiedUser.address, true);
             await expect(
                 daoPartyNoNFT.connect(verifiedUser).createProposal("Test Proposal", votingPeriod)
             ).to.be.revertedWith("NFT contract not set");
         });
 
         it("Должен отклонять создание предложения, если вызывающий не владеет NFT", async function () {
-            await daoParty.updateKyc(unverifiedUser.address, true);
+            await kycManager.updateKyc(unverifiedUser.address, true);
             await expect(
                 daoParty.connect(unverifiedUser).createProposal("Test Proposal", votingPeriod)
             ).to.be.revertedWith("You must own an NFT");
@@ -109,7 +120,7 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
 
     describe("Механизм повторного KYC", function () {
         it("Должен блокировать создание предложения, если срок KYC истёк", async function () {
-            await daoParty.updateKyc(verifiedUser.address, true);
+            await kycManager.updateKyc(verifiedUser.address, true);
             await network.provider.send("evm_increaseTime", [KYC_VALIDITY_PERIOD + 1]);
             await network.provider.send("evm_mine");
             await expect(
@@ -118,13 +129,14 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
         });
 
         it("Должен разрешать создание предложения после повторного KYC", async function () {
-            await daoParty.updateKyc(verifiedUser.address, true);
+            await kycManager.updateKyc(verifiedUser.address, true);
             await network.provider.send("evm_increaseTime", [KYC_VALIDITY_PERIOD + 1]);
             await network.provider.send("evm_mine");
             await expect(
                 daoParty.connect(verifiedUser).createProposal("Test Proposal after KYC expiry", votingPeriod)
             ).to.be.revertedWith("KYC expired");
-            await daoParty.updateKyc(verifiedUser.address, true);
+            // Повторно обновляем KYC через KYCManager
+            await kycManager.updateKyc(verifiedUser.address, true);
             await expect(
                 daoParty.connect(verifiedUser).createProposal("Test Proposal after KYC renewal", votingPeriod)
             ).to.emit(daoParty, "ProposalCreated");
@@ -134,21 +146,21 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
     describe("Ограничения KYC", function () {
         it("Не должен разрешать использовать один и тот же паспорт (faceId) для верификации другого пользователя", async function () {
             await expect(
-                daoParty.verifyUser(otherUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "face123")
+                kycManager.verifyUser(otherUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "face123")
             ).to.be.revertedWith("Identifier already used");
         });
 
         it("Не должен разрешать повторную верификацию для одного и того же пользователя без отмены KYC", async function () {
             await expect(
-                daoParty.verifyUser(verifiedUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "faceNew")
+                kycManager.verifyUser(verifiedUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "faceNew")
             ).to.be.revertedWith("User already verified");
         });
 
         it("Должен разрешать повторную верификацию с тем же идентификатором после отмены KYC", async function () {
-            await daoParty.connect(verifiedUser).cancelKyc();
+            await kycManager.cancelKyc(verifiedUser.address);
             await expect(
-                    daoParty.verifyUser(verifiedUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "face123")
-                ).to.emit(daoParty, "KycUpdated")
+                    kycManager.verifyUser(verifiedUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "face123")
+                ).to.emit(kycManager, "KycUpdated")
                 .withArgs(verifiedUser.address, true, anyValue, "ВНУТРЕННИЙ ПАСПОРТ РФ");
         });
     });
@@ -217,11 +229,11 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
 
     describe("Механизм отмены KYC", function () {
         it("Должен позволять пользователю отменить свой KYC", async function () {
-            await expect(daoParty.connect(verifiedUser).cancelKyc())
-                .to.emit(daoParty, "KycUpdated")
+            await expect(kycManager.cancelKyc(verifiedUser.address))
+                .to.emit(kycManager, "KycUpdated")
                 .withArgs(verifiedUser.address, false, 0, "");
 
-            await expect(daoParty.connect(verifiedUser).cancelKyc())
+            await expect(kycManager.cancelKyc(verifiedUser.address))
                 .to.be.revertedWith("KYC is not active");
 
             await expect(
@@ -230,15 +242,15 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
         });
 
         it("Должен позволять повторную верификацию после отмены KYC", async function () {
-            await daoParty.connect(verifiedUser).cancelKyc();
+            await kycManager.cancelKyc(verifiedUser.address);
 
             await expect(
                 daoParty.connect(verifiedUser).createProposal("Proposal after cancelKyc", votingPeriod)
             ).to.be.revertedWith("KYC verification required");
 
             await expect(
-                    daoParty.verifyUser(verifiedUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "face123")
-                ).to.emit(daoParty, "KycUpdated")
+                    kycManager.verifyUser(verifiedUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "face123")
+                ).to.emit(kycManager, "KycUpdated")
                 .withArgs(verifiedUser.address, true, anyValue, "ВНУТРЕННИЙ ПАСПОРТ РФ");
 
             await expect(
@@ -273,7 +285,7 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
         });
 
         it("Должна автоматически завершаться голосование, если исход предрешён (пример 1)", async function () {
-            // Для теста установим maxVoters = 100
+            // Устанавливаем maxVoters = 100
             await daoParty.setMaxVoters(100);
             const additionalVoters = [];
             const totalVotersNeeded = 52;
@@ -284,12 +296,10 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
                     value: ethers.parseEther("1")
                 });
                 await nftPassport.mintPassport(wallet.address);
-                await daoParty.updateKyc(wallet.address, true);
+                await kycManager.updateKyc(wallet.address, true);
                 await daoParty.connect(wallet).likeProposal(proposalId);
                 additionalVoters.push(wallet);
             }
-            // Голосуем от дополнительных кошельков. Если при каком-то голосовании происходит revert
-            // с сообщением "Proposal already finalized", прекращаем цикл.
             for (let i = 0; i < totalVotersNeeded; i++) {
                 try {
                     await daoParty.connect(additionalVoters[i]).vote(proposalId, true);
@@ -316,7 +326,7 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
                     value: ethers.parseEther("1")
                 });
                 await nftPassport.mintPassport(wallet.address);
-                await daoParty.updateKyc(wallet.address, true);
+                await kycManager.updateKyc(wallet.address, true);
                 await daoParty.connect(wallet).likeProposal(proposalId);
                 additionalVoters.push(wallet);
             }
@@ -397,8 +407,8 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
             await network.provider.send("evm_increaseTime", [2592000 + 1]);
             await network.provider.send("evm_mine");
 
-            // Обновляем KYC для verifiedUser, чтобы продлить срок действия (вызывается от имени владельца)
-            await daoParty.updateKyc(verifiedUser.address, true);
+            // Обновляем KYC для verifiedUser через KYCManager
+            await kycManager.updateKyc(verifiedUser.address, true);
 
             // Повторный вызов должен сработать, так как прошло достаточно времени и KYC актуально
             await expect(
@@ -445,7 +455,7 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
                     value: ethers.parseEther("1")
                 });
                 await nftPassport.mintPassport(wallet.address);
-                await daoParty.updateKyc(wallet.address, true);
+                await kycManager.updateKyc(wallet.address, true);
                 additionalVoters.push(wallet);
             }
             for (let i = 0; i < totalVotersNeeded; i++) {
@@ -483,7 +493,7 @@ describe("DaoParty (обновлённая версия с KYC и NFT, испо�
                 value: ethers.parseEther("1")
             });
             await nftPassport.mintPassport(extraWallet.address);
-            await daoParty.updateKyc(extraWallet.address, true);
+            await kycManager.updateKyc(extraWallet.address, true);
             await daoParty.connect(extraWallet).voteAdminProposal(adminProposalIdManual, true);
             // Ждем истечения срока
             await network.provider.send("evm_increaseTime", [votingPeriod + 1]);

@@ -1,15 +1,14 @@
 // scripts/interact.js
 
-// Импортируем anyValue для использования в проверке событий
-const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
+const {
+    anyValue
+} = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
 
 // Получаем адреса контрактов из переменных окружения или аргументов командной строки
-const contractAddressFromEnv = process.env.CONTRACT_ADDRESS;
-const contractAddressArg = process.argv[process.argv.length - 1];
 const daoPartyAddress =
-    contractAddressFromEnv && !contractAddressFromEnv.startsWith("--")
-        ? contractAddressFromEnv
-        : contractAddressArg;
+    process.env.CONTRACT_ADDRESS && !process.env.CONTRACT_ADDRESS.startsWith("--") ?
+    process.env.CONTRACT_ADDRESS :
+    process.argv[process.argv.length - 1];
 
 if (!daoPartyAddress || daoPartyAddress.startsWith("--")) {
     throw new Error(
@@ -26,8 +25,21 @@ if (!nftPassportAddress || nftPassportAddress.startsWith("--")) {
 }
 console.log("Используем адрес контракта NFTPassport:", nftPassportAddress);
 
-const { ethers, network } = require("hardhat");
-const { expect } = require("chai");
+const kycManagerAddress = process.env.KYC_MANAGER_ADDRESS;
+if (!kycManagerAddress || kycManagerAddress.startsWith("--")) {
+    throw new Error(
+        "Пожалуйста, укажите адрес контракта KYCManager через переменную окружения KYC_MANAGER_ADDRESS"
+    );
+}
+console.log("Используем адрес контракта KYCManager:", kycManagerAddress);
+
+const {
+    ethers,
+    network
+} = require("hardhat");
+const {
+    expect
+} = require("chai");
 
 // Задаем период голосования (в секундах)
 const votingPeriod = 3600; // 1 час
@@ -38,12 +50,17 @@ async function main() {
 
     // Получаем экземпляр контракта DaoParty через attach
     const DaoParty = await ethers.getContractFactory("DaoParty");
+    // Поскольку конструктор DaoParty принимает два аргумента (initialOwner, _kycManager),
+    // убедимся, что контракт на адресе daoPartyAddress был развернут с owner.address и kycManagerAddress.
     const daoParty = DaoParty.attach(daoPartyAddress);
     console.log("\nВзаимодействуем с контрактом DaoParty, адрес:", daoPartyAddress);
 
-    // Получаем экземпляр контракта NFTPassport через ethers.getContractAt
+    // Получаем экземпляры контрактов NFTPassport и KYCManager через ethers.getContractAt
     const nftPassport = await ethers.getContractAt("NFTPassport", nftPassportAddress);
     console.log("Взаимодействуем с контрактом NFTPassport, адрес:", nftPassportAddress);
+
+    const kycManager = await ethers.getContractAt("KYCManager", kycManagerAddress);
+    console.log("Взаимодействуем с контрактом KYCManager, адрес:", kycManagerAddress);
 
     // --- Дополнительная проверка: вывод кода контракта NFTPassport ---
     const code = await ethers.provider.getCode(nftPassportAddress);
@@ -59,21 +76,22 @@ async function main() {
     console.log("NFT-контракт установлен на:", nftPassportAddress);
 
     console.log("\n[Администрирование] Регистрируем доверенного KYC-провайдера (verifiedUser)...");
-    tx = await daoParty.addKycProvider(verifiedUser.address);
+    tx = await kycManager.connect(owner).addKycProvider(verifiedUser.address);
     await tx.wait();
     console.log("verifiedUser добавлен как доверенный KYC-провайдер.");
 
+
     console.log("\n[Администрирование] Обновление KYC для verifiedUser от имени владельца...");
-    tx = await daoParty.updateKyc(verifiedUser.address, true);
+    tx = await kycManager.updateKyc(verifiedUser.address, true);
     await tx.wait();
     console.log("KYC для verifiedUser успешно обновлён.");
 
-    // Если владелец (owner) ещё не верифицирован, обновляем его KYC
+    // Если владелец (owner) ещё не верифицирован, обновляем его KYC через KYCManager
     console.log("\n[Администрирование] Обновление KYC для owner от имени владельца...");
-    tx = await daoParty.updateKyc(owner.address, true);
+    tx = await kycManager.updateKyc(owner.address, true);
     await tx.wait();
     console.log("KYC для owner успешно обновлён.");
-  
+
     // Проверяем, что verifiedUser владеет NFT.
     let verifiedUserBalance = await nftPassport["balanceOf(address)"](verifiedUser.address);
     console.log("Первоначальный баланс verifiedUser:", verifiedUserBalance.toString());
@@ -96,21 +114,16 @@ async function main() {
         console.log("MintPassport: NFT для user3 уже выдан. Продолжаем выполнение...");
     }
 
-    console.log("\n[Администрирование] Обновление KYC для user2 через updateKyc...");
-    tx = await daoParty.updateKyc(user2.address, true);
+    console.log("\n[Администрирование] Обновление KYC для user2 через KYCManager...");
+    tx = await kycManager.updateKyc(user2.address, true);
     await tx.wait();
-    console.log("KYC для user2 обновлён через updateKyc.");
+    console.log("KYC для user2 обновлён через KYCManager.");
 
-    // Верификация user3 через доверенного провайдера (verifiedUser) с использованием новой функции verifyUser
-    const isUser3Verified = await daoParty.kycVerified(user3.address);
+    // Верификация user3 через доверенного провайдера (verifiedUser) с использованием функции verifyUser из KYCManager
+    const isUser3Verified = await kycManager.kycVerified(user3.address);
     if (!isUser3Verified) {
         console.log("\n[Администрирование] Верификация user3 с корректными данными от доверенного провайдера (verifiedUser)...");
-        tx = await daoParty.connect(verifiedUser).verifyUser(
-            user3.address,
-            "ВНУТРЕННИЙ ПАСПОРТ РФ", // передаём корректное значение
-            true,
-            "faceXYZ"
-        );
+        tx = await kycManager.connect(verifiedUser).verifyUser(user3.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "faceXYZ");
         await tx.wait();
         console.log("User3 успешно верифицирован.");
     } else {
@@ -119,7 +132,7 @@ async function main() {
 
     // --- Проверка механизма отмены KYC и повторной верификации ---
     console.log("\n[Проверка KYC] User3 отменяет свой KYC...");
-    tx = await daoParty.connect(user3).cancelKyc();
+    tx = await kycManager.cancelKyc(user3.address);
     await tx.wait();
     console.log("User3 успешно отменил KYC.");
 
@@ -133,12 +146,7 @@ async function main() {
     }
 
     console.log("\n[Проверка KYC] Повторная верификация user3 от доверенного провайдера (verifiedUser)...");
-    tx = await daoParty.connect(verifiedUser).verifyUser(
-        user3.address,
-        "ВНУТРЕННИЙ ПАСПОРТ РФ", // корректное значение
-        true,
-        "faceXYZ"
-    );
+    tx = await kycManager.connect(verifiedUser).verifyUser(user3.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "faceXYZ");
     await tx.wait();
     console.log("User3 успешно повторно верифицирован.");
 
@@ -179,8 +187,8 @@ async function main() {
         throw new Error("ProposalCreated event not found in transaction");
     }
     let proposalId = Number(parsedEvents[0].args[0].toString());
-  
-    await daoParty.updateKyc(owner.address, true);
+
+    await kycManager.updateKyc(owner.address, true);
     await ensureNft(owner.address, owner);
     try {
         await daoParty.connect(owner).likeProposal(proposalId);
@@ -192,7 +200,10 @@ async function main() {
     const additionalVoters = [];
     for (let i = 0; i < 160; i++) {
         const wallet = ethers.Wallet.createRandom().connect(ethers.provider);
-        await owner.sendTransaction({ to: wallet.address, value: ethers.parseEther("1") });
+        await owner.sendTransaction({
+            to: wallet.address,
+            value: ethers.parseEther("1")
+        });
         let balance = await nftPassport["balanceOf(address)"](wallet.address);
         if (balance.toString() === "0") {
             try {
@@ -205,7 +216,7 @@ async function main() {
         } else {
             console.log(`NFT для ${wallet.address} уже выдан.`);
         }
-        await daoParty.updateKyc(wallet.address, true);
+        await kycManager.updateKyc(wallet.address, true);
         try {
             await daoParty.connect(wallet).likeProposal(proposalId);
         } catch (error) {
@@ -264,7 +275,10 @@ async function main() {
     const voters = [];
     for (let i = 0; i < 10; i++) {
         const wallet = ethers.Wallet.createRandom().connect(ethers.provider);
-        await owner.sendTransaction({ to: wallet.address, value: ethers.parseEther("1") });
+        await owner.sendTransaction({
+            to: wallet.address,
+            value: ethers.parseEther("1")
+        });
         let balance = await nftPassport["balanceOf(address)"](wallet.address);
         if (balance.toString() === "0") {
             try {
@@ -277,7 +291,7 @@ async function main() {
         } else {
             console.log(`NFT для ${wallet.address} уже выдан.`);
         }
-        await daoParty.updateKyc(wallet.address, true);
+        await kycManager.updateKyc(wallet.address, true);
         voters.push(wallet);
     }
     for (let i = 0; i < 5; i++) {
@@ -338,31 +352,29 @@ async function main() {
 
     // --- Проверка сброса данных после cancelKyc ---
     console.log("\nПроверка: Сброс данных после cancelKyc");
-    await daoParty.connect(verifiedUser).cancelKyc();
-    let isVerifiedStatus = await daoParty.kycVerified(verifiedUser.address);
+    tx = await kycManager.connect(verifiedUser).cancelKyc(verifiedUser.address);
+    await tx.wait();
+    let isVerifiedStatus = await kycManager.kycVerified(verifiedUser.address);
     console.log("После отмены KYC, статус:", isVerifiedStatus.toString());
-    let expiryStatus = await daoParty.kycExpiry(verifiedUser.address);
-    let docTypeStatus = await daoParty.kycDocumentType(verifiedUser.address);
+    let expiryStatus = await kycManager.kycExpiry(verifiedUser.address);
+    let docTypeStatus = await kycManager.kycDocumentType(verifiedUser.address);
     expect(isVerifiedStatus).to.equal(false);
     expect(expiryStatus).to.equal(0);
     expect(docTypeStatus).to.equal("");
     console.log("Данные успешно сброшены после cancelKyc.");
     await expect(
-        // В данном случае вызов производится от владельца (owner) – он имеет право как KYC-провайдер
-        daoParty.verifyUser(verifiedUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "face123")
-    )
-        .to.emit(daoParty, "KycUpdated")
+            kycManager.connect(owner).verifyUser(verifiedUser.address, "ВНУТРЕННИЙ ПАСПОРТ РФ", true, "face123")
+        )
+        .to.emit(kycManager, "KycUpdated")
         .withArgs(verifiedUser.address, true, anyValue, "ВНУТРЕННИЙ ПАСПОРТ РФ");
 
     // Новый функционал: Ограничение частоты создания предложений
     console.log("\n[Проверка ограничения частоты создания предложений]");
-    // 1. Создаем предложение от verifiedUser
     console.log("Создаем первое предложение от verifiedUser...");
     tx = await daoParty.connect(verifiedUser).createProposal("Frequency Test Proposal 1", votingPeriod);
     await tx.wait();
     console.log("Первое предложение успешно создано.");
 
-    // 2. Попытка создать сразу второе предложение от того же пользователя должна завершиться ошибкой
     console.log("Пытаемся создать второе предложение от verifiedUser сразу...");
     try {
         tx = await daoParty.connect(verifiedUser).createProposal("Frequency Test Proposal 2", votingPeriod);
@@ -372,17 +384,14 @@ async function main() {
         console.log("Ожидаемая ошибка при создании второго предложения:", error.message);
     }
 
-    // 3. Увеличиваем время на 30 дней (2592000 секунд) + 1 секунда
     console.log("Увеличиваем время на 30 дней...");
     await network.provider.send("evm_increaseTime", [2592000 + 1]);
     await network.provider.send("evm_mine");
 
-    // 4. После смещения времени срок действия KYC истекает, поэтому обновляем KYC для verifiedUser (владелец может обновить KYC)
     console.log("Обновляем KYC для verifiedUser, чтобы продлить срок действия...");
-    tx = await daoParty.updateKyc(verifiedUser.address, true);
+    tx = await kycManager.updateKyc(verifiedUser.address, true);
     await tx.wait();
 
-    // 5. Теперь повторная попытка создания предложения должна пройти успешно
     console.log("Пытаемся создать новое предложение от verifiedUser после 30 дней...");
     tx = await daoParty.connect(verifiedUser).createProposal("Frequency Test Proposal 3", votingPeriod);
     await tx.wait();
@@ -419,16 +428,18 @@ async function main() {
 
     // --- Новый функционал: Механизм голосования за изменение состава администраторов ---
     console.log("\n[Новый функционал] Механизм голосования за изменение состава администраторов");
-    // Создаем нового администратора (newAdmin), чтобы избежать ошибки "Address is already an admin"
+    // Создаем нового администратора (newAdmin) для теста
     const newAdmin = ethers.Wallet.createRandom().connect(ethers.provider);
-    await owner.sendTransaction({ to: newAdmin.address, value: ethers.parseEther("1") });
+    await owner.sendTransaction({
+        to: newAdmin.address,
+        value: ethers.parseEther("1")
+    });
     await nftPassport.connect(owner).mintPassport(newAdmin.address);
-    await daoParty.updateKyc(newAdmin.address, true);
+    await kycManager.updateKyc(newAdmin.address, true);
     let isNewAdmin = await daoParty.admins(newAdmin.address);
     if (isNewAdmin) {
         console.log("Новый администратор уже установлен. Используем другой адрес.");
     }
-    // 1. Создаем предложение на добавление newAdmin в список администраторов
     tx = await daoParty.connect(verifiedUser).proposeAdminChange(
         newAdmin.address,
         true,
@@ -447,18 +458,16 @@ async function main() {
         .filter(e => e && e.name === "AdminProposalCreated")[0].args.proposalId;
     console.log("Создано предложение по изменению состава администраторов, adminProposalId:", adminProposalId.toString());
 
-    // 2. Голосование за предложение: пусть verifiedUser голосует "за"
+    console.log("\n[Новый функционал] Голосование за административное предложение");
     tx = await daoParty.connect(verifiedUser).voteAdminProposal(adminProposalId, true);
     await tx.wait();
     console.log("verifiedUser проголосовал за предложение по изменению состава администраторов.");
 
-    // 3. Перед ручной финализацией ждем истечения срока голосования
     console.log("\n[Новый функционал] Ждем истечения срока голосования для админ предложения...");
     await network.provider.send("evm_increaseTime", [votingPeriod + 1]);
     await network.provider.send("evm_mine");
 
-    // 4. Ручная финализация предложения
-    console.log("\n[Новый функционал] Ручная финализация предложения по изменению состава администраторов");
+    console.log("\n[Новый функционал] Ручная финализация административного предложения");
     tx = await daoParty.finalizeAdminProposal(adminProposalId);
     await tx.wait();
     isNewAdmin = await daoParty.admins(newAdmin.address);
