@@ -2,11 +2,16 @@
 pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "hardhat/console.sol";
 
 contract KYCManager is Ownable {
+    // Автоматически сгенерированные геттеры:
+    // function kycVerified(address user) external view returns (bool);
+    // function kycExpiry(address user) external view returns (uint256);
     mapping(address => bool) public kycVerified;
     mapping(address => uint256) public kycExpiry;
     mapping(address => string) public kycDocumentType;
+    
     uint256 public constant KYC_VALIDITY_PERIOD = 2592000; // 30 дней
 
     mapping(string => bool) public usedIdentifiers;
@@ -54,12 +59,17 @@ contract KYCManager is Ownable {
     }
 
     /// @notice Верифицирует пользователя (вызывается только доверенными провайдерами или владельцем)
+    /// @dev Проверяет, что пользователь ещё не верифицирован, что переданный тип документа соответствует требуемому,
+    /// что пройден liveness-чек, что faceID корректен и не был использован ранее.
     function verifyUser(
         address user,
         string calldata documentType,
         bool liveness,
         string calldata faceId
     ) external onlyKycProvider {
+        console.log("KYCManager.verifyUser called by:", msg.sender, "for user:", user);
+        console.log("Document type: %s, liveness: %s, faceId: %s", documentType, liveness ? "true" : "false", faceId);
+
         require(!kycVerified[user], "User already verified");
         require(
             keccak256(bytes(documentType)) == keccak256(bytes(unicode"ВНУТРЕННИЙ ПАСПОРТ РФ")),

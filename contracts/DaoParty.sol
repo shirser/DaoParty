@@ -4,11 +4,14 @@ pragma solidity ^0.8.28;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "./VotingLib.sol";  // Библиотека для проверки финализации голосования
+import "hardhat/console.sol"; // Для отладки (Hardhat)
 
 // Интерфейс для доступа к данным KYC, реализованным в KYCManager.sol
 interface IKYCManager {
     function kycVerified(address user) external view returns (bool);
     function kycExpiry(address user) external view returns (uint256);
+    // Для проверки авторизации KYC-провайдера:
+    function kycProviders(address provider) external view returns (bool);
 }
 
 contract DaoParty is Ownable {
@@ -96,6 +99,29 @@ contract DaoParty is Ownable {
     event MultiOptionProposalFinalized(uint256 proposalId, uint256 winningOption);
 
     // -------------------------
+    // Модификатор для доступа доверенных KYC-провайдеров
+    // -------------------------
+    modifier onlyKycProvider() {
+        require(kycManager.kycProviders(msg.sender), "Not an authorized KYC provider");
+        _;
+    }
+
+    // -------------------------
+    // Функция для верификации пользователя
+    // -------------------------
+    /// @notice Функция для верификации пользователя.
+    /// @dev Выполняет проверку через KYCManager.
+    /// Убраны неиспользуемые параметры (_documentType, _livenessCheckPassed, _faceId).
+    function verifyUser(address _user) external onlyKycProvider view {
+        console.log("verifyUser called by:", msg.sender);
+        bool isAuthorized = kycManager.kycProviders(msg.sender);
+        console.log("Is KYC provider authorized?", isAuthorized);
+        require(kycManager.kycVerified(_user), "KYC verification required");
+        require(kycManager.kycExpiry(_user) > block.timestamp, "KYC expired");
+        // Дополнительные проверки (например, документа, liveness-чек, faceID) можно добавить при необходимости.
+    }
+
+    // -------------------------
     // Модификатор, проверяющий, что:
     // 1. NFT-контракт установлен;
     // 2. Пользователь владеет хотя бы одним NFT;
@@ -174,7 +200,6 @@ contract DaoParty is Ownable {
         }
         emit Voted(proposalId, msg.sender, support);
 
-        // Используем библиотечную функцию для проверки досрочной финализации
         if (VotingLib.canFinalize(p.votesFor, p.votesAgainst, maxVoters)) {
             p.completed = true;
             emit ProposalFinalized(proposalId);

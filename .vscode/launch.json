@@ -1,0 +1,17 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "type": "node",
+        "request": "launch",
+        "name": "Run All Tests in Order",
+        "runtimeExecutable": "bash",
+        "runtimeArgs": [
+          "${workspaceFolder}/run-tests.sh"
+        ],
+        "console": "integratedTerminal",
+        "internalConsoleOptions": "neverOpen"
+      }
+    ]
+  }
+  

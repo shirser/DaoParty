@@ -1,26 +1,46 @@
-import hardhat from "hardhat";
+import { ethers } from "hardhat"; // Импортируем ethers напрямую
 
 async function main() {
-    const [deployer] = await hardhat.ethers.getSigners();
-    console.log("Deploying NFTPassport with account:", deployer.address);
+    try {
+        const [deployer] = await ethers.getSigners(); // Используем ethers.getSigners()
+        console.log("Deploying NFTPassport with account:", deployer.address);
 
-    const NFTPassport = await hardhat.ethers.getContractFactory("NFTPassport");
+        const NFTPassport = await ethers.getContractFactory("NFTPassport"); // ethers.getContractFactory
+        const nftPassport = await NFTPassport.deploy(); // Deploy без аргументов (если конструктор пустой)
+        await nftPassport.waitForDeployment();
 
-    // Деплой контракта с указанием владельца
-    const nftPassport = await NFTPassport.deploy();
-    await nftPassport.waitForDeployment();
+        const nftPassportAddress = await nftPassport.getAddress(); // Получаем адрес отдельно
+        console.log("NFTPassport deployed to:", nftPassportAddress);
 
-    console.log("NFTPassport deployed to:", await nftPassport.getAddress());
+        // Проверяем, что адрес не нулевой
+        if (nftPassportAddress === ethers.ZeroAddress) {
+            throw new Error("NFTPassport deployment failed: Zero address");
+        }
 
-    // Выдача тестового паспорта владельцу (если надо)
-    console.log("Minting test NFTPassport for deployer...");
-    const tx = await nftPassport.mintPassport(deployer.address);
-    await tx.wait();
+        // Выдача тестового паспорта владельцу (если надо)
+        console.log("Minting test NFTPassport for deployer...");
+        const mintTx = await nftPassport.mintPassport(deployer.address);
+        await mintTx.wait();
 
-    console.log("Deployer has been assigned an NFT Passport.");
+        console.log("Deployer has been assigned an NFT Passport.");
+
+        // Верифицируем контракт (опционально, но рекомендуется)
+        if (hardhat.network.name !== "hardhat") { // Не верифицируем локально
+            try {
+                await hardhat.run("verify:verify", {
+                    address: nftPassportAddress,
+                    constructorArguments: [], // Аргументы конструктора (если есть)
+                });
+                console.log("NFTPassport contract verified.");
+            } catch (verifyError) {
+                console.error("Contract verification failed:", verifyError);
+            }
+        }
+
+    } catch (error) {
+        console.error("Deployment failed:", error);
+        process.exitCode = 1;
+    }
 }
 
-main().catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-});
+main(); // Вызываем main
