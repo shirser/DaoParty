@@ -5,29 +5,45 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "hardhat/console.sol";
 
 contract KYCManager is Ownable {
-    // Автоматически сгенерированные геттеры:
-    // function kycVerified(address user) external view returns (bool);
-    // function kycExpiry(address user) external view returns (uint256);
+    // Оставляем необходимые переменные для работы с KYC
     mapping(address => bool) public kycVerified;
     mapping(address => uint256) public kycExpiry;
     mapping(address => string) public kycDocumentType;
     
     uint256 public constant KYC_VALIDITY_PERIOD = 2592000; // 30 дней
 
+    // Остальные переменные и мэппинги будут добавлены позже
+    /*
     mapping(string => bool) public usedIdentifiers;
     mapping(address => string) public userIdentifier;
-
-    // Мэппинг для хранения доверенных KYC-провайдеров
     mapping(address => bool) public kycProviders;
+    */
 
     event KycUpdated(address indexed user, bool verified, uint256 expiry, string documentType);
+    // Остальные события будут добавлены позже
+    /*
     event KycResetRequested(address indexed user);
     event KycProviderAdded(address indexed provider);
     event KycProviderRemoved(address indexed provider);
+    */
 
     /// @notice Конструктор, передающий адрес владельца базовому конструктору Ownable.
     constructor(address initialOwner) Ownable(initialOwner) {}
 
+    /// @notice Обновляет статус KYC пользователя.
+    /// @dev Если verified == true, устанавливается время действия верификации; иначе сбрасываются данные.
+    function updateKyc(address user, bool verified) external {
+        kycVerified[user] = verified;
+        if (verified) {
+            kycExpiry[user] = block.timestamp + KYC_VALIDITY_PERIOD;
+        } else {
+            kycExpiry[user] = 0;
+            kycDocumentType[user] = "";
+        }
+        emit KycUpdated(user, verified, kycExpiry[user], kycDocumentType[user]);
+    }
+
+    /*
     /// @notice Добавляет адрес доверенного KYC-провайдера (только владелец)
     function addKycProvider(address provider) external onlyOwner {
         kycProviders[provider] = true;
@@ -46,21 +62,7 @@ contract KYCManager is Ownable {
         _;
     }
 
-    /// @notice Обновляет статус KYC пользователя (вызывается, например, владельцем)
-    function updateKyc(address user, bool verified) external {
-        kycVerified[user] = verified;
-        if (verified) {
-            kycExpiry[user] = block.timestamp + KYC_VALIDITY_PERIOD;
-        } else {
-            kycExpiry[user] = 0;
-            kycDocumentType[user] = "";
-        }
-        emit KycUpdated(user, verified, kycExpiry[user], kycDocumentType[user]);
-    }
-
     /// @notice Верифицирует пользователя (вызывается только доверенными провайдерами или владельцем)
-    /// @dev Проверяет, что пользователь ещё не верифицирован, что переданный тип документа соответствует требуемому,
-    /// что пройден liveness-чек, что faceID корректен и не был использован ранее.
     function verifyUser(
         address user,
         string calldata documentType,
@@ -101,4 +103,5 @@ contract KYCManager is Ownable {
         emit KycUpdated(user, false, 0, "");
         emit KycResetRequested(user);
     }
+    */
 }
