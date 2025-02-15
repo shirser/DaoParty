@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { connectWallet } from "@/utils/ethereum";
 import { checkNFT } from "@/utils/nftPassportContract";
 
@@ -8,6 +9,7 @@ export default function ConnectWallet() {
   const [wallet, setWallet] = useState<string | null>(null);
   const [hasNFT, setHasNFT] = useState<boolean | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string | null>(null);
+  const router = useRouter();
 
   async function handleConnect() {
     console.log("🔌 Нажата кнопка подключения...");
@@ -26,6 +28,11 @@ export default function ConnectWallet() {
       setHasNFT(hasNFT);
       setRejectionReason(reason);
       console.log("📜 Проверка NFT:", { hasNFT, reason });
+
+      // Если NFT-паспорт есть, автоматически переходим в личный кабинет
+      if (hasNFT) {
+        router.push("/personal-account");
+      }
     }
   }
 
