@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { connectWallet } from "@/utils/ethereum";
 import { getBalance } from "@/utils/balance"; // Предполагается, что эта функция реализована
 import { checkNFT } from "@/utils/nftPassportContract";
@@ -37,8 +38,6 @@ export default function PersonalAccount() {
 
         // Получаем данные NFT-паспорта
         const nftResult = await checkNFT(result.address);
-        // checkNFT возвращает объект { hasNFT, reason }
-        // Если возможно, можно добавить поле tokenId внутри checkNFT (если контракт его возвращает)
         setNftData(nftResult);
 
         // Получаем данные KYC
@@ -61,7 +60,34 @@ export default function PersonalAccount() {
   }
 
   return (
-    <div className="max-w-xl mx-auto p-6 bg-white rounded-lg shadow-md">
+    <div className="max-w-3xl mx-auto p-6 bg-white rounded-lg shadow-md">
+      {/* Навигация табов */}
+      <nav className="mb-6 border-b">
+        <ul className="flex space-x-6">
+          <li>
+            <Link href="/personal-account">
+              <span className="pb-2 border-b-2 border-blue-600 text-blue-600 font-semibold cursor-pointer">
+                Профиль
+              </span>
+            </Link>
+          </li>
+          <li>
+            <Link href="/proposals">
+              <span className="pb-2 hover:border-b-2 hover:border-gray-300 cursor-pointer">
+                Предложения
+              </span>
+            </Link>
+          </li>
+          <li>
+            <Link href="/votings">
+              <span className="pb-2 hover:border-b-2 hover:border-gray-300 cursor-pointer">
+                Голосования
+              </span>
+            </Link>
+          </li>
+        </ul>
+      </nav>
+
       <h1 className="text-2xl font-bold mb-4">Личный кабинет</h1>
       {wallet ? (
         <>
