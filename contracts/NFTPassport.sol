@@ -18,6 +18,13 @@ contract NFTPassport is ERC721, Ownable {
     constructor() ERC721("DAO Party Passport", "DPP") Ownable(msg.sender) {}
 
     /**
+     * @dev Возвращает количество NFT у пользователя.
+     */
+    function balanceOf(address owner) public view override returns (uint256) {
+        return super.balanceOf(owner); // Явный вызов из ERC721
+    }
+
+    /**
      * @dev Проверяет, есть ли у пользователя NFT-паспорт.
      */
     function hasPassport(address user) public view returns (bool) {
@@ -29,7 +36,7 @@ contract NFTPassport is ERC721, Ownable {
      */
     function mintPassport(address user) external onlyOwner {
         require(!hasPassportMapping[user], "User already has a passport");
-        
+
         _tokenIds += 1;
         uint256 newPassportId = _tokenIds;
         _safeMint(user, newPassportId);
