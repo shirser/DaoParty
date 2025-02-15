@@ -30,10 +30,7 @@ export default function ConnectWallet() {
   }
 
   return (
-    <div className="flex flex-col items-center p-6 bg-white shadow-lg rounded-lg">
-      <h1 className="text-lg font-bold">Добро пожаловать в DAO Party!</h1>
-      <p className="text-sm text-gray-700">Подключите свой кошелек, чтобы начать.</p>
-
+    <div className="flex flex-col items-center">
       <button
         onClick={handleConnect}
         className="mt-4 px-6 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700"
