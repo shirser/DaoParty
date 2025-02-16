@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { connectWallet } from "@/utils/ethereum";
-import { getBalance } from "@/utils/balance"; // Предполагается, что эта функция реализована
+import { getBalance } from "@/utils/balance";
 import { checkNFT } from "@/utils/nftPassportContract";
-import { getKYCData } from "@/utils/kyc"; // Предполагается, что эта функция реализована
+import { getKYCData } from "@/utils/kyc";
 
 interface NFTData {
   hasNFT: boolean;
@@ -19,7 +18,7 @@ interface KYCData {
   documentType: string | null;
 }
 
-export default function PersonalAccount() {
+export default function ProfilePage() {
   const [wallet, setWallet] = useState<string | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
   const [nftData, setNftData] = useState<NFTData | null>(null);
@@ -60,35 +59,8 @@ export default function PersonalAccount() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-6 bg-white rounded-lg shadow-md">
-      {/* Навигация табов */}
-      <nav className="mb-6 border-b">
-        <ul className="flex space-x-6">
-          <li>
-            <Link href="/personal-account">
-              <span className="pb-2 border-b-2 border-blue-600 text-blue-600 font-semibold cursor-pointer">
-                Профиль
-              </span>
-            </Link>
-          </li>
-          <li>
-            <Link href="/proposals">
-              <span className="pb-2 hover:border-b-2 hover:border-gray-300 cursor-pointer">
-                Предложения
-              </span>
-            </Link>
-          </li>
-          <li>
-            <Link href="/votings">
-              <span className="pb-2 hover:border-b-2 hover:border-gray-300 cursor-pointer">
-                Голосования
-              </span>
-            </Link>
-          </li>
-        </ul>
-      </nav>
-
-      <h1 className="text-2xl font-bold mb-4">Личный кабинет</h1>
+    <div>
+      <h1 className="text-2xl font-bold mb-4">Профиль</h1>
       {wallet ? (
         <>
           <p>

@@ -31,7 +31,7 @@ export default function ConnectWallet() {
 
       // Если NFT-паспорт есть, автоматически переходим в личный кабинет
       if (hasNFT) {
-        router.push("/personal-account");
+        router.push("/dashboard/profile");
       }
     }
   }
