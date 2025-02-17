@@ -7,17 +7,20 @@ import { checkNFT } from "@/utils/nftPassportContract";
 
 export default function ConnectWallet() {
   const [wallet, setWallet] = useState<string | null>(null);
+  const [signer, setSigner] = useState<any>(null);
   const [hasNFT, setHasNFT] = useState<boolean | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string | null>(null);
   const router = useRouter();
 
   async function handleConnect() {
     console.log("🔌 Нажата кнопка подключения...");
+    // Ожидаем, что connectWallet возвращает объект с полями { address, signer }
     const result = await connectWallet();
     console.log("🔗 Результат подключения:", result);
 
     if (result) {
       setWallet(result.address);
+      setSigner(result.signer);
       console.log("✅ Кошелек установлен:", result.address);
 
       // Лог перед вызовом checkNFT
@@ -29,7 +32,7 @@ export default function ConnectWallet() {
       setRejectionReason(reason);
       console.log("📜 Проверка NFT:", { hasNFT, reason });
 
-      // Если NFT-паспорт есть, автоматически переходим в личный кабинет
+      // Если NFT-паспорт есть, автоматически перенаправляем пользователя на страницу профиля
       if (hasNFT) {
         router.push("/dashboard/profile");
       }

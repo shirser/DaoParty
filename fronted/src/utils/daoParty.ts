@@ -9,7 +9,7 @@ const daoPartyABI = [
 ];
 
 if (!daoPartyAddress) {
-  throw new Error("Адрес контракта DaoParty не задан в переменных окружения!");
+  throw new Error("Адрес контракта DaoParty не задан в переменных окружении!");
 }
 
 async function getDaoPartyContract(withSigner = false) {
@@ -21,8 +21,8 @@ async function getDaoPartyContract(withSigner = false) {
     if (typeof window !== "undefined" && window.ethereum) {
       await window.ethereum.request({ method: "eth_requestAccounts" });
     }
-    // Получаем список аккаунтов через provider.send("eth_accounts", [])
-    const accounts = await provider.send("eth_accounts", []);
+    // Получаем список аккаунтов через window.ethereum.request
+    const accounts = await window.ethereum.request({ method: "eth_accounts" });
     if (!accounts || accounts.length === 0) {
       throw new Error("Нет доступных аккаунтов. Пожалуйста, подключите кошелек.");
     }
