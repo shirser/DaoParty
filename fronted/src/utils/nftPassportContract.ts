@@ -36,8 +36,9 @@ async function getSigner() {
     const address = await signer.getAddress();
     console.log("👤 Signer адрес:", address);
     return signer;
-  } catch (error) {
-    console.error("❌ Ошибка при получении signer:", error);
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error("❌ Ошибка при получении signer:", err);
     throw new Error("Ошибка получения signer. Проверь MetaMask.");
   }
 }
@@ -67,8 +68,8 @@ async function checkNFT(address: string): Promise<{ hasNFT: boolean; reason: str
     }
     console.log("✅ Баланс NFT перед проверкой:", balanceRaw.toString());
 
-    // Используем ethers.toBigInt для преобразования (ethers v6)
-    const balance = ethers.toBigInt(balanceRaw);
+    // Преобразуем баланс в BigInt
+    const balance = BigInt(balanceRaw.toString());
     console.log("✅ Баланс NFT после преобразования в BigInt:", balance.toString());
 
     if (balance <= 0n) {
@@ -89,9 +90,10 @@ async function checkNFT(address: string): Promise<{ hasNFT: boolean; reason: str
     console.log("🆔 ID NFT-паспорта:", tokenId.toString());
 
     return { hasNFT: true, reason: null };
-  } catch (error: any) {
-    console.error("❌ Ошибка при вызове balanceOf:", error);
-    return { hasNFT: false, reason: error.message || "Неизвестная ошибка" };
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error("❌ Ошибка при вызове balanceOf:", err);
+    return { hasNFT: false, reason: err.message || "Неизвестная ошибка" };
   }
 }
 

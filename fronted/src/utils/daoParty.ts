@@ -9,7 +9,7 @@ const daoPartyABI = [
 ];
 
 if (!daoPartyAddress) {
-  throw new Error("Адрес контракта DaoParty не задан в переменных окружении!");
+  throw new Error("Адрес контракта DaoParty не задан в переменных окружения!");
 }
 
 async function getDaoPartyContract(withSigner = false) {
@@ -21,12 +21,14 @@ async function getDaoPartyContract(withSigner = false) {
     if (typeof window !== "undefined" && window.ethereum) {
       await window.ethereum.request({ method: "eth_requestAccounts" });
     }
-    // Получаем список аккаунтов через window.ethereum.request
-    const accounts = await window.ethereum.request({ method: "eth_accounts" });
+    // Получаем список аккаунтов через window.ethereum.request и приводим к string[]
+    const accounts = (await window.ethereum!.request({ method: "eth_accounts" })) as string[];
     if (!accounts || accounts.length === 0) {
       throw new Error("Нет доступных аккаунтов. Пожалуйста, подключите кошелек.");
     }
-    const signer = await provider.getSigner();
+    // Приводим provider к BrowserProvider, чтобы использовать getSigner()
+    const browserProvider = provider as ethers.BrowserProvider;
+    const signer = await browserProvider.getSigner();
     const signerAddress = await signer.getAddress();
     console.log("Используем signer с адресом:", signerAddress);
     return new ethers.Contract(daoPartyAddress, daoPartyABI, signer);
@@ -41,7 +43,7 @@ export async function likeProposal(proposalId: number): Promise<void> {
     const tx = await contract.likeProposal(proposalId);
     await tx.wait(); // Дождаться подтверждения транзакции
     console.log("Лайк успешно поставлен");
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Ошибка при постановке лайка:", error);
     throw error;
   }

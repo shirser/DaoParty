@@ -1,9 +1,10 @@
-// Для демонстрации возвращаются заглушки; на практике здесь можно подключиться к Firebase Firestore или другому источнику.
-export async function getKYCData(address: string): Promise<{
+export async function getKYCData(_address: string): Promise<{
     verified: boolean;
     expiry: number | null;
     documentType: string | null;
   }> {
+    // Используем параметр, чтобы ESLint не жаловался на неиспользуемую переменную
+    void _address;
     // Для тестирования возвращаем фиктивные данные
     return {
       verified: true,

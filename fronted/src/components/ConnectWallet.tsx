@@ -7,33 +7,29 @@ import { checkNFT } from "@/utils/nftPassportContract";
 
 export default function ConnectWallet() {
   const [wallet, setWallet] = useState<string | null>(null);
-  const [signer, setSigner] = useState<any>(null);
   const [hasNFT, setHasNFT] = useState<boolean | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string | null>(null);
   const router = useRouter();
 
   async function handleConnect() {
     console.log("🔌 Нажата кнопка подключения...");
-    // Ожидаем, что connectWallet возвращает объект с полями { address, signer }
+    // Ожидаем, что connectWallet возвращает объект { address, signer }
     const result = await connectWallet();
     console.log("🔗 Результат подключения:", result);
 
     if (result) {
       setWallet(result.address);
-      setSigner(result.signer);
-      console.log("✅ Кошелек установлен:", result.address);
+      console.log("✅ Кошелек подключен:", result.address);
 
-      // Лог перед вызовом checkNFT
       console.log("📞 Вызываем checkNFT для:", result.address);
-      
-      // Ожидаем, что checkNFT вернёт объект с полями hasNFT и reason
-      const { hasNFT, reason } = await checkNFT(result.address);
-      setHasNFT(hasNFT);
-      setRejectionReason(reason);
-      console.log("📜 Проверка NFT:", { hasNFT, reason });
+      // Получаем данные о NFT-паспорте
+      const nftResult = await checkNFT(result.address);
+      setHasNFT(nftResult.hasNFT);
+      setRejectionReason(nftResult.reason);
+      console.log("📜 Проверка NFT:", nftResult);
 
-      // Если NFT-паспорт есть, автоматически перенаправляем пользователя на страницу профиля
-      if (hasNFT) {
+      // Если NFT-паспорт есть, переходим на страницу профиля
+      if (nftResult.hasNFT) {
         router.push("/dashboard/profile");
       }
     }
