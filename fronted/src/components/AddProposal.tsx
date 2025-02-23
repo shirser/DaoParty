@@ -1,18 +1,44 @@
 "use client";
 
 import { useState } from "react";
+import { createProposal } from "@/utils/daoParty";
+import { addProposalToFirestore, ProposalFirestore } from "@/utils/proposalsFirestore";
 
 interface AddProposalProps {
-  onCreate: (text: string) => void;
+  onProposalCreated: () => void;
 }
 
-export default function AddProposal({ onCreate }: AddProposalProps) {
+export default function AddProposal({ onProposalCreated }: AddProposalProps) {
   const [open, setOpen] = useState<boolean>(false);
   const [text, setText] = useState<string>("");
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (text.trim().length === 0) return;
-    onCreate(text);
+    try {
+      // Предположим, голосование длится 7 дней (7*24*3600 секунд)
+      const votingPeriod = 7 * 24 * 3600;
+      const txSuccess = await createProposal(text, votingPeriod);
+      if (txSuccess) {
+        // Здесь можно получить on-chain ID предложения, если контракт его возвращает.
+        // Если функция createProposal не возвращает ID, можно добавить отдельный метод.
+        const proposalOnChainId = 0; // Замените на реальное значение, если оно доступно.
+        
+        // Сохраняем предложение в Firestore
+        const proposalData: ProposalFirestore = {
+          proposalId: proposalOnChainId,
+          description: text,
+          deadline: Math.floor(Date.now() / 1000) + votingPeriod,
+          likes: 0,
+          createdAt: Date.now(),
+        };
+        await addProposalToFirestore(proposalData);
+        
+        // Вызываем callback для обновления списка предложений
+        onProposalCreated();
+      }
+    } catch (error) {
+      console.error("Ошибка при создании предложения:", error);
+    }
     setText("");
     setOpen(false);
   };

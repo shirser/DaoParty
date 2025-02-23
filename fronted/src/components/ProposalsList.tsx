@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { likeProposal, getLikes, hasUserLiked } from "@/utils/daoParty";
+import { likeProposal, getLikes, hasUserLiked, getProposals } from "@/utils/daoParty";
 import ProposalCard from "./ProposalCard";
 import AddProposal from "./AddProposal";
 
@@ -16,41 +16,39 @@ export default function ProposalsList() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
+  // Функция для обновления списка предложений с on‑chain данных
+  async function updateProposals() {
+    try {
+      const proposalsOnChain = await getProposals();
+      setProposals(proposalsOnChain);
+    } catch (error) {
+      console.error("Ошибка получения предложений:", error);
+      setProposals([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
-    // Пока on-chain данные не получаются, инициализируем список предложений пустым
-    setProposals([]);
-    setLoading(false);
+    updateProposals();
   }, []);
 
-  // Функция для обработки создания нового предложения
-  function handleCreateProposal(text: string) {
-    // Здесь вы бы вызвали метод смарт-контракта для создания предложения.
-    // Пока для демонстрации добавляем предложение в локальное состояние.
-    const newProposal: Proposal = {
-      id: proposals.length + 1, // Примерное определение ID
-      text,
-      likes: 0,
-      userLiked: false,
-    };
-    setProposals([...proposals, newProposal]);
+  // Функция для создания нового предложения on‑chain
+  async function handleCreateProposal(text: string) {
+    try {
+      // Здесь вы бы вызвали on‑chain функцию создания предложения, например:
+      // await createProposal(text, 7 * 24 * 3600);
+      // После успешного создания обновляем список предложений:
+      await updateProposals();
+    } catch (error) {
+      console.error("Ошибка при создании предложения:", error);
+    }
   }
 
   async function handleLike(proposalId: number) {
     try {
       await likeProposal(proposalId);
-      // После успешного лайка обновляем данные для предложения
-      const updatedProposals = await Promise.all(
-        proposals.map(async (proposal) => {
-          if (proposal.id === proposalId) {
-            const newLikes = await getLikes(proposalId);
-            // Здесь вместо "0xYourUserAddress" нужно передать адрес подключённого пользователя
-            const userLiked = await hasUserLiked(proposalId, "0xYourUserAddress");
-            return { ...proposal, likes: newLikes, userLiked };
-          }
-          return proposal;
-        })
-      );
-      setProposals(updatedProposals);
+      await updateProposals();
     } catch (error) {
       console.error("Ошибка при постановке лайка:", error);
     }

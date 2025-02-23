@@ -3,9 +3,11 @@ import { provider } from "./ethereum";
 
 const daoPartyAddress = process.env.NEXT_PUBLIC_DAOPARTY_CONTRACT!;
 const daoPartyABI = [
+  // Функция создания предложения (принимает описание и период голосования в секундах)
+  "function createProposal(string description, uint256 votingPeriod) external returns (bool)",
   "function likes(uint256 proposalId) external view returns (uint256)",
   "function liked(uint256 proposalId, address user) external view returns (bool)",
-  "function likeProposal(uint256 proposalId) external",
+  "function likeProposal(uint256 proposalId) external"
 ];
 
 if (!daoPartyAddress) {
@@ -21,7 +23,7 @@ async function getDaoPartyContract(withSigner = false) {
     if (typeof window !== "undefined" && window.ethereum) {
       await window.ethereum.request({ method: "eth_requestAccounts" });
     }
-    // Получаем список аккаунтов через window.ethereum.request и приводим к string[]
+    // Получаем список аккаунтов и приводим тип
     const accounts = (await window.ethereum!.request({ method: "eth_accounts" })) as string[];
     if (!accounts || accounts.length === 0) {
       throw new Error("Нет доступных аккаунтов. Пожалуйста, подключите кошелек.");
@@ -37,6 +39,20 @@ async function getDaoPartyContract(withSigner = false) {
   }
 }
 
+export async function createProposal(description: string, votingPeriod: number): Promise<boolean> {
+  try {
+    const contract = await getDaoPartyContract(true);
+    const tx = await contract.createProposal(description, votingPeriod);
+    await tx.wait(); // Дождаться подтверждения транзакции
+    console.log("Предложение успешно создано");
+    return true;
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error("Ошибка при создании предложения:", err);
+    throw err;
+  }
+}
+
 export async function likeProposal(proposalId: number): Promise<void> {
   try {
     const contract = await getDaoPartyContract(true);
@@ -44,8 +60,9 @@ export async function likeProposal(proposalId: number): Promise<void> {
     await tx.wait(); // Дождаться подтверждения транзакции
     console.log("Лайк успешно поставлен");
   } catch (error: unknown) {
-    console.error("Ошибка при постановке лайка:", error);
-    throw error;
+    const err = error as Error;
+    console.error("Ошибка при постановке лайка:", err);
+    throw err;
   }
 }
 
