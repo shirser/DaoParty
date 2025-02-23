@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { likeProposal, getLikes, hasUserLiked } from "@/utils/daoParty";
 import ProposalCard from "./ProposalCard";
+import AddProposal from "./AddProposal";
 
 interface Proposal {
   id: number;
@@ -20,6 +21,19 @@ export default function ProposalsList() {
     setProposals([]);
     setLoading(false);
   }, []);
+
+  // Функция для обработки создания нового предложения
+  function handleCreateProposal(text: string) {
+    // Здесь вы бы вызвали метод смарт-контракта для создания предложения.
+    // Пока для демонстрации добавляем предложение в локальное состояние.
+    const newProposal: Proposal = {
+      id: proposals.length + 1, // Примерное определение ID
+      text,
+      likes: 0,
+      userLiked: false,
+    };
+    setProposals([...proposals, newProposal]);
+  }
 
   async function handleLike(proposalId: number) {
     try {
@@ -48,6 +62,7 @@ export default function ProposalsList() {
 
   return (
     <div className="space-y-4">
+      <AddProposal onCreate={handleCreateProposal} />
       {proposals.length === 0 ? (
         <p>Нет предложений</p>
       ) : (
