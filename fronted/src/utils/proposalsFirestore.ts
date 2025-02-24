@@ -2,15 +2,14 @@ import { collection, addDoc, getDocs, query, orderBy } from "firebase/firestore"
 import { firestore } from "../firebaseConfig";
 
 export interface ProposalFirestore {
-  id?: string; // ID документа Firestore
-  proposalId: number; // On-chain ID предложения
+  id?: string;
+  proposalId: number;
   description: string;
   deadline: number;
   likes: number;
   createdAt: number;
 }
 
-// Функция для добавления предложения в Firestore
 export async function addProposalToFirestore(proposal: ProposalFirestore): Promise<void> {
   try {
     const proposalsCol = collection(firestore, "proposals");
@@ -24,7 +23,6 @@ export async function addProposalToFirestore(proposal: ProposalFirestore): Promi
   }
 }
 
-// Функция для получения списка предложений из Firestore
 export async function getProposalsFromFirestore(): Promise<ProposalFirestore[]> {
   try {
     const proposalsCol = collection(firestore, "proposals");

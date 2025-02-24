@@ -3,7 +3,6 @@ import { provider } from "./ethereum";
 
 const daoPartyAddress = process.env.NEXT_PUBLIC_DAOPARTY_CONTRACT!;
 const daoPartyABI = [
-  // Функция создания предложения (принимает описание и период голосования в секундах)
   "function createProposal(string description, uint256 votingPeriod) external returns (bool)",
   "function likes(uint256 proposalId) external view returns (uint256)",
   "function liked(uint256 proposalId, address user) external view returns (bool)",
@@ -19,16 +18,13 @@ async function getDaoPartyContract(withSigner = false) {
     if (!provider) {
       throw new Error("Провайдер не найден");
     }
-    // Запрашиваем подключение аккаунтов через window.ethereum.request
     if (typeof window !== "undefined" && window.ethereum) {
       await window.ethereum.request({ method: "eth_requestAccounts" });
     }
-    // Получаем список аккаунтов и приводим тип
     const accounts = (await window.ethereum!.request({ method: "eth_accounts" })) as string[];
     if (!accounts || accounts.length === 0) {
       throw new Error("Нет доступных аккаунтов. Пожалуйста, подключите кошелек.");
     }
-    // Приводим provider к BrowserProvider, чтобы использовать getSigner()
     const browserProvider = provider as ethers.BrowserProvider;
     const signer = await browserProvider.getSigner();
     const signerAddress = await signer.getAddress();
@@ -43,8 +39,8 @@ export async function createProposal(description: string, votingPeriod: number):
   try {
     const contract = await getDaoPartyContract(true);
     const tx = await contract.createProposal(description, votingPeriod);
-    await tx.wait(); // Дождаться подтверждения транзакции
-    console.log("Предложение успешно создано");
+    await tx.wait();
+    console.log("Предложение успешно создано on-chain");
     return true;
   } catch (error: unknown) {
     const err = error as Error;
@@ -57,7 +53,7 @@ export async function likeProposal(proposalId: number): Promise<void> {
   try {
     const contract = await getDaoPartyContract(true);
     const tx = await contract.likeProposal(proposalId);
-    await tx.wait(); // Дождаться подтверждения транзакции
+    await tx.wait();
     console.log("Лайк успешно поставлен");
   } catch (error: unknown) {
     const err = error as Error;
