@@ -1,51 +1,82 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createProposal } from "@/utils/daoParty";
-import { addProposalToFirestore, ProposalFirestore } from "@/utils/proposalsFirestore";
+import { ethers } from "ethers";
 
-interface AddProposalProps {
-  onCreate: (text: string) => Promise<void>;
-}
+// Адрес контракта и ABI
+const contractAddress = "ВАШ_АДРЕС_КОНТРАКТА";
+const contractABI = [
+  // Вставьте ABI для getProposal и других методов
+];
 
-export default function AddProposal({ onCreate }: AddProposalProps) {
+export default function AddProposal() {
   const [open, setOpen] = useState<boolean>(false);
   const [text, setText] = useState<string>("");
+  const [proposals, setProposals] = useState<any[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async () => {
-    if (text.trim().length === 0) return;
+    if (text.trim().length === 0) {
+      setError("Текст предложения не может быть пустым.");
+      return;
+    }
     try {
-      // Задаем период голосования: 7 дней = 7 * 24 * 3600 секунд
       const votingPeriod = 7 * 24 * 3600;
+      setError(null);  // Сбрасываем предыдущие ошибки
+
       const txSuccess = await createProposal(text, votingPeriod);
       if (txSuccess) {
         console.log("Предложение успешно создано on-chain");
-        // Здесь можно получить on-chain ID предложения, если контракт его возвращает.
-        // Пока используем 0 как заглушку.
-        const proposalOnChainId = 0;
-        
-        // Формируем объект данных для Firestore
-        const proposalData: ProposalFirestore = {
-          proposalId: proposalOnChainId,
-          description: text,
-          deadline: Math.floor(Date.now() / 1000) + votingPeriod,
-          likes: 0,
-          createdAt: Date.now(),
-        };
-        await addProposalToFirestore(proposalData);
-        
-        // Вызываем callback для обновления списка предложений
-        await onCreate(text);
+        await fetchProposals(); // Обновляем список предложений после создания
+      } else {
+        throw new Error("Ошибка при отправке транзакции в блокчейн.");
       }
-    } catch (error) {
+    } catch (error: any) {
+      setError(`Ошибка при создании предложения: ${error.message}`);
       console.error("Ошибка при создании предложения:", error);
     }
     setText("");
     setOpen(false);
   };
 
+  const fetchProposals = async () => {
+    try {
+      if (!window.ethereum) {
+        throw new Error("Нет доступа к Ethereum. Убедитесь, что установлен MetaMask.");
+      }
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      await provider.send("eth_requestAccounts", []); // Запросить доступ к аккаунтам пользователя
+      
+      const contract = new ethers.Contract(contractAddress, contractABI, provider);
+      const proposalCount = await contract.proposals.length;
+      
+      const fetchedProposals = [];
+      for (let i = 0; i < proposalCount; i++) {
+        const proposal = await contract.getProposal(i);
+        fetchedProposals.push({
+          description: proposal[0],
+          completed: proposal[1],
+          votesFor: proposal[2].toNumber(),
+          votesAgainst: proposal[3].toNumber(),
+          deadline: new Date(proposal[4].toNumber() * 1000).toLocaleString(),
+        });
+      }
+      setProposals(fetchedProposals);
+    } catch (error: any) {
+      setError(`Ошибка при получении предложений: ${error.message}`);
+      console.error("Ошибка при получении предложений:", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchProposals();
+  }, []);
+
   return (
     <div className="mb-4">
+      {error && <div className="text-red-600 mb-2">{error}</div>}
+      
       {!open ? (
         <button
           className="px-4 py-2 bg-green-600 text-white rounded"
@@ -77,6 +108,19 @@ export default function AddProposal({ onCreate }: AddProposalProps) {
           </div>
         </div>
       )}
+
+      <h2 className="mt-4">Список предложений</h2>
+      <ul>
+        {proposals.map((proposal, index) => (
+          <li key={index} className="p-2 border-b">
+            <strong>Описание:</strong> {proposal.description}<br />
+            <strong>Голоса за:</strong> {proposal.votesFor} |
+            <strong> Голоса против:</strong> {proposal.votesAgainst}<br />
+            <strong>Завершено:</strong> {proposal.completed ? "Да" : "Нет"}<br />
+            <strong>Крайний срок:</strong> {proposal.deadline}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
