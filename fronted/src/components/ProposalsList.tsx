@@ -1,26 +1,36 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { likeProposal, getLikes, hasUserLiked, getProposals } from "@/utils/daoParty";
+import { likeProposal, getLikes, hasUserLiked } from "@/utils/daoParty";
+import { getProposalsFromFirestore } from "@/utils/proposalsFirestore";
 import ProposalCard from "./ProposalCard";
 import AddProposal from "./AddProposal";
 
 interface Proposal {
-  id: number;
-  text: string;
+  id: string; // Firestore document ID
+  proposalId: number;
+  description: string;
   likes: number;
   userLiked: boolean;
+  deadline: number;
 }
 
 export default function ProposalsList() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Функция для обновления списка предложений с on‑chain данных
   async function updateProposals() {
     try {
-      const proposalsOnChain = await getProposals();
-      setProposals(proposalsOnChain);
+      const proposalsFromFirestore = await getProposalsFromFirestore();
+      const updatedProposals = proposalsFromFirestore.map((p) => ({
+        id: p.id!,
+        proposalId: p.proposalId,
+        description: p.description,
+        likes: p.likes,
+        deadline: p.deadline,
+        userLiked: false, // Пока оставляем false; можно добавить проверку, поставил ли пользователь лайк
+      }));
+      setProposals(updatedProposals);
     } catch (error) {
       console.error("Ошибка получения предложений:", error);
       setProposals([]);
@@ -33,16 +43,11 @@ export default function ProposalsList() {
     updateProposals();
   }, []);
 
-  // Функция для создания нового предложения on‑chain
   async function handleCreateProposal(text: string) {
-    try {
-      // Здесь вы бы вызвали on‑chain функцию создания предложения, например:
-      // await createProposal(text, 7 * 24 * 3600);
-      // После успешного создания обновляем список предложений:
-      await updateProposals();
-    } catch (error) {
-      console.error("Ошибка при создании предложения:", error);
-    }
+    // Здесь вызывайте on-chain метод создания предложения,
+    // а затем обновляйте список через updateProposals().
+    // Для демонстрации обновляем список предложений:
+    await updateProposals();
   }
 
   async function handleLike(proposalId: number) {
@@ -67,8 +72,8 @@ export default function ProposalsList() {
         proposals.map((proposal) => (
           <ProposalCard
             key={proposal.id}
-            id={proposal.id}
-            text={proposal.text}
+            id={proposal.proposalId}
+            text={proposal.description}
             likes={proposal.likes}
             userLiked={proposal.userLiked}
             onLike={handleLike}
