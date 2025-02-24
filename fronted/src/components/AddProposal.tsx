@@ -5,10 +5,10 @@ import { createProposal } from "@/utils/daoParty";
 import { addProposalToFirestore, ProposalFirestore } from "@/utils/proposalsFirestore";
 
 interface AddProposalProps {
-  onProposalCreated: () => void;
+  onCreate: (text: string) => Promise<void>;
 }
 
-export default function AddProposal({ onProposalCreated }: AddProposalProps) {
+export default function AddProposal({ onCreate }: AddProposalProps) {
   const [open, setOpen] = useState<boolean>(false);
   const [text, setText] = useState<string>("");
 
@@ -17,11 +17,10 @@ export default function AddProposal({ onProposalCreated }: AddProposalProps) {
     try {
       // Задаем период голосования: 7 дней = 7 * 24 * 3600 секунд
       const votingPeriod = 7 * 24 * 3600;
-      // Вызываем on‑chain функцию создания предложения
       const txSuccess = await createProposal(text, votingPeriod);
       if (txSuccess) {
-        console.log("Предложение успешно создано on‑chain");
-        // Здесь можно получить on‑chain ID предложения, если контракт его возвращает.
+        console.log("Предложение успешно создано on-chain");
+        // Здесь можно получить on-chain ID предложения, если контракт его возвращает.
         // Пока используем 0 как заглушку.
         const proposalOnChainId = 0;
         
@@ -33,11 +32,10 @@ export default function AddProposal({ onProposalCreated }: AddProposalProps) {
           likes: 0,
           createdAt: Date.now(),
         };
-        // Сохраняем предложение в Firestore
         await addProposalToFirestore(proposalData);
         
         // Вызываем callback для обновления списка предложений
-        onProposalCreated();
+        await onCreate(text);
       }
     } catch (error) {
       console.error("Ошибка при создании предложения:", error);
