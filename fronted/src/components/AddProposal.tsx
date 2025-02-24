@@ -4,9 +4,9 @@ import { useState, useEffect } from "react";
 import { createProposal } from "@/utils/daoParty";
 import { ethers } from "ethers";
 
-// Замените на реальный адрес вашего смарт‑контракта
+// Замените на реальный адрес вашего смарт‑контракта DaoParty
 const contractAddress = "0xF33f51C638Ab1394818ce7c6F3F0D8c272235071";
-// Вставьте фрагменты ABI для получения данных о предложениях (например, getProposal)
+// ABI для метода получения предложения (если он реализован в контракте)
 const contractABI = [
   "function getProposal(uint256 index) public view returns (string memory, bool, uint256, uint256, uint256)"
 ];
@@ -23,7 +23,7 @@ export default function AddProposal() {
       return;
     }
     try {
-      const votingPeriod = 7 * 24 * 3600; // 7 дней
+      const votingPeriod = 7 * 24 * 3600; // 7 дней в секундах
       setError(null);
       const txSuccess = await createProposal(text, votingPeriod);
       if (txSuccess) {
@@ -45,14 +45,13 @@ export default function AddProposal() {
       if (!window.ethereum) {
         throw new Error("Нет доступа к Ethereum. Убедитесь, что установлен MetaMask.");
       }
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      // Используем ethers.Web3Provider (ethers v6)
+      const provider = new ethers.Web3Provider(window.ethereum);
       await provider.send("eth_requestAccounts", []); // Запрашиваем доступ к аккаунтам
       const contract = new ethers.Contract(contractAddress, contractABI, provider);
       
-      // Если в контракте реализована функция для получения количества предложений,
-      // её можно вызвать, например:
-      // const proposalCount = await contract.getProposalsCount();
-      // Для демонстрации используем фиксированное число:
+      // Если в контракте реализована функция для получения количества предложений, например getProposalsCount,
+      // можно использовать её. Пока для демонстрации используем фиксированное число:
       const proposalCount = 3;
       
       const fetchedProposals = [];
