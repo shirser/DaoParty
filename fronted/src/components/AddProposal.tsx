@@ -6,7 +6,7 @@ import { ethers } from "ethers";
 
 // Замените на реальный адрес вашего смарт‑контракта DaoParty
 const contractAddress = "0xF33f51C638Ab1394818ce7c6F3F0D8c272235071";
-// ABI для метода получения предложения (если он реализован в контракте)
+// ABI для метода получения предложения (пример). Если у вас реализован другой метод, замените его здесь.
 const contractABI = [
   "function getProposal(uint256 index) public view returns (string memory, bool, uint256, uint256, uint256)"
 ];
@@ -45,13 +45,14 @@ export default function AddProposal() {
       if (!window.ethereum) {
         throw new Error("Нет доступа к Ethereum. Убедитесь, что установлен MetaMask.");
       }
-      // Используем ethers.Web3Provider (ethers v6)
+      // Используем ethers.Web3Provider для ethers v6
       const provider = new ethers.Web3Provider(window.ethereum);
       await provider.send("eth_requestAccounts", []); // Запрашиваем доступ к аккаунтам
       const contract = new ethers.Contract(contractAddress, contractABI, provider);
       
-      // Если в контракте реализована функция для получения количества предложений, например getProposalsCount,
-      // можно использовать её. Пока для демонстрации используем фиксированное число:
+      // Если в контракте реализована функция для получения количества предложений,
+      // можно вызвать её, например: const proposalCount = await contract.getProposalsCount();
+      // Пока для демонстрации используем фиксированное число:
       const proposalCount = 3;
       
       const fetchedProposals = [];
