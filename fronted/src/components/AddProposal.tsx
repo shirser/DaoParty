@@ -4,10 +4,11 @@ import { useState, useEffect } from "react";
 import { createProposal } from "@/utils/daoParty";
 import { ethers } from "ethers";
 
-// Адрес контракта и ABI
-const contractAddress = "ВАШ_АДРЕС_КОНТРАКТА";
+// Замените на реальный адрес вашего смарт‑контракта
+const contractAddress = "0xF33f51C638Ab1394818ce7c6F3F0D8c272235071";
+// Вставьте фрагменты ABI для получения данных о предложениях (например, getProposal)
 const contractABI = [
-  // Вставьте ABI для getProposal и других методов
+  "function getProposal(uint256 index) public view returns (string memory, bool, uint256, uint256, uint256)"
 ];
 
 export default function AddProposal() {
@@ -22,9 +23,8 @@ export default function AddProposal() {
       return;
     }
     try {
-      const votingPeriod = 7 * 24 * 3600;
-      setError(null);  // Сбрасываем предыдущие ошибки
-
+      const votingPeriod = 7 * 24 * 3600; // 7 дней
+      setError(null);
       const txSuccess = await createProposal(text, votingPeriod);
       if (txSuccess) {
         console.log("Предложение успешно создано on-chain");
@@ -46,14 +46,20 @@ export default function AddProposal() {
         throw new Error("Нет доступа к Ethereum. Убедитесь, что установлен MetaMask.");
       }
       const provider = new ethers.providers.Web3Provider(window.ethereum);
-      await provider.send("eth_requestAccounts", []); // Запросить доступ к аккаунтам пользователя
-      
+      await provider.send("eth_requestAccounts", []); // Запрашиваем доступ к аккаунтам
       const contract = new ethers.Contract(contractAddress, contractABI, provider);
-      const proposalCount = await contract.proposals.length;
+      
+      // Если в контракте реализована функция для получения количества предложений,
+      // её можно вызвать, например:
+      // const proposalCount = await contract.getProposalsCount();
+      // Для демонстрации используем фиксированное число:
+      const proposalCount = 3;
       
       const fetchedProposals = [];
       for (let i = 0; i < proposalCount; i++) {
         const proposal = await contract.getProposal(i);
+        // Предполагается, что getProposal возвращает кортеж:
+        // (description, completed, votesFor, votesAgainst, deadline)
         fetchedProposals.push({
           description: proposal[0],
           completed: proposal[1],
@@ -111,15 +117,19 @@ export default function AddProposal() {
 
       <h2 className="mt-4">Список предложений</h2>
       <ul>
-        {proposals.map((proposal, index) => (
-          <li key={index} className="p-2 border-b">
-            <strong>Описание:</strong> {proposal.description}<br />
-            <strong>Голоса за:</strong> {proposal.votesFor} |
-            <strong> Голоса против:</strong> {proposal.votesAgainst}<br />
-            <strong>Завершено:</strong> {proposal.completed ? "Да" : "Нет"}<br />
-            <strong>Крайний срок:</strong> {proposal.deadline}
-          </li>
-        ))}
+        {proposals.length === 0 ? (
+          <p>Нет предложений</p>
+        ) : (
+          proposals.map((proposal, index) => (
+            <li key={index} className="p-2 border-b">
+              <strong>Описание:</strong> {proposal.description}<br />
+              <strong>Голоса за:</strong> {proposal.votesFor} |
+              <strong> Голоса против:</strong> {proposal.votesAgainst}<br />
+              <strong>Завершено:</strong> {proposal.completed ? "Да" : "Нет"}<br />
+              <strong>Крайний срок:</strong> {proposal.deadline}
+            </li>
+          ))
+        )}
       </ul>
     </div>
   );
