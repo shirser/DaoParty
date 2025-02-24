@@ -15,15 +15,17 @@ export default function AddProposal({ onProposalCreated }: AddProposalProps) {
   const handleSubmit = async () => {
     if (text.trim().length === 0) return;
     try {
-      // Предположим, голосование длится 7 дней (7*24*3600 секунд)
+      // Задаем период голосования: 7 дней = 7 * 24 * 3600 секунд
       const votingPeriod = 7 * 24 * 3600;
+      // Вызываем on‑chain функцию создания предложения
       const txSuccess = await createProposal(text, votingPeriod);
       if (txSuccess) {
-        // Здесь можно получить on-chain ID предложения, если контракт его возвращает.
-        // Если функция createProposal не возвращает ID, можно добавить отдельный метод.
-        const proposalOnChainId = 0; // Замените на реальное значение, если оно доступно.
+        console.log("Предложение успешно создано on‑chain");
+        // Здесь можно получить on‑chain ID предложения, если контракт его возвращает.
+        // Пока используем 0 как заглушку.
+        const proposalOnChainId = 0;
         
-        // Сохраняем предложение в Firestore
+        // Формируем объект данных для Firestore
         const proposalData: ProposalFirestore = {
           proposalId: proposalOnChainId,
           description: text,
@@ -31,6 +33,7 @@ export default function AddProposal({ onProposalCreated }: AddProposalProps) {
           likes: 0,
           createdAt: Date.now(),
         };
+        // Сохраняем предложение в Firestore
         await addProposalToFirestore(proposalData);
         
         // Вызываем callback для обновления списка предложений
